@@ -1,0 +1,871 @@
+# 🎯 LANDING PAGE LAYOUT - TRUEFOCUS (FINAL)
+
+---
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TrueFocus - Reclaim Deep Focus & Explosive Productivity</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', sans-serif;
+      -webkit-font-smoothing: antialiased;
+      background: white;
+      color: #1A1A1A;
+      overflow-x: hidden;
+    }
+
+    /* NAVIGATION */
+    .nav {
+      position: fixed;
+      top: 0;
+      width: 100%;
+      height: 80px;
+      background: rgba(255, 255, 255, 0.98);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid #E0E0E0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 48px;
+      z-index: 1000;
+    }
+
+    .logo {
+      font-size: 26px;
+      font-weight: 700;
+      color: #1A1A1A;
+      letter-spacing: -0.5px;
+    }
+
+    .nav-buttons {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .btn-web-login {
+      padding: 11px 24px;
+      background: transparent;
+      border: 1.5px solid #E0E0E0;
+      border-radius: 8px;
+      color: #424242;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-decoration: none;
+      display: inline-block;
+    }
+
+    .btn-web-login:hover {
+      background: #F5F5F5;
+      border-color: #BDBDBD;
+    }
+
+    .btn-download {
+      padding: 11px 24px;
+      background: #424242;
+      border: none;
+      border-radius: 8px;
+      color: white;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-decoration: none;
+      display: inline-block;
+    }
+
+    .btn-download:hover {
+      background: #1A1A1A;
+      transform: translateY(-1px);
+    }
+
+    .btn-start-free {
+      padding: 11px 32px;
+      background: #1565C0;
+      border: none;
+      border-radius: 8px;
+      color: white;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-decoration: none;
+      display: inline-block;
+    }
+
+    .btn-start-free:hover {
+      background: #0D47A1;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(21, 101, 192, 0.3);
+    }
+
+    /* HERO SECTION */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 140px 48px 80px;
+      background: linear-gradient(180deg, #FAFAFA 0%, #FFFFFF 100%);
+      text-align: center;
+    }
+
+    .hero-content {
+      max-width: 900px;
+      margin-bottom: 60px;
+    }
+
+    .hero-title {
+      font-size: 64px;
+      font-weight: 700;
+      color: #1A1A1A;
+      line-height: 1.15;
+      margin-bottom: 16px;
+      letter-spacing: -0.03em;
+    }
+
+    .hero-subtitle {
+      font-size: 32px;
+      font-weight: 600;
+      color: #F44336;
+      line-height: 1.3;
+      margin-bottom: 32px;
+      letter-spacing: -0.02em;
+    }
+
+    .hero-description {
+      font-size: 20px;
+      color: #6B6B6B;
+      line-height: 1.6;
+      margin-bottom: 48px;
+    }
+
+    .hero-description strong {
+      color: #1A1A1A;
+      font-weight: 600;
+    }
+
+    .btn-hero {
+      padding: 20px 56px;
+      background: #1565C0;
+      border: none;
+      border-radius: 12px;
+      color: white;
+      font-size: 18px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.3s;
+      box-shadow: 0 4px 16px rgba(21, 101, 192, 0.3);
+      text-decoration: none;
+      display: inline-block;
+    }
+
+    .btn-hero:hover {
+      background: #0D47A1;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(21, 101, 192, 0.4);
+    }
+
+    .hero-note {
+      font-size: 14px;
+      color: #9E9E9E;
+      margin-top: 16px;
+    }
+
+    .hero-image {
+      max-width: 1200px;
+      width: 100%;
+      margin-top: 40px;
+    }
+
+    .hero-image img {
+      width: 100%;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+    }
+
+    /* FEATURES SECTION */
+    .features {
+      padding: 120px 48px;
+      background: white;
+    }
+
+    .features-content {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .section-title {
+      font-size: 42px;
+      font-weight: 700;
+      color: #1A1A1A;
+      text-align: center;
+      margin-bottom: 80px;
+      letter-spacing: -0.02em;
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 64px;
+    }
+
+    .feature-card {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 48px;
+      align-items: center;
+    }
+
+    .feature-card:nth-child(even) {
+      direction: rtl;
+    }
+
+    .feature-card:nth-child(even) > * {
+      direction: ltr;
+    }
+
+    .feature-text h3 {
+      font-size: 32px;
+      font-weight: 700;
+      color: #1A1A1A;
+      margin-bottom: 16px;
+    }
+
+    .feature-text p {
+      font-size: 18px;
+      color: #6B6B6B;
+      line-height: 1.7;
+    }
+
+    .feature-image {
+      width: 100%;
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+    }
+
+    /* PRICING SECTION */
+    .pricing {
+      padding: 120px 48px;
+      background: #FAFAFA;
+    }
+
+    .pricing-content {
+      max-width: 1200px;
+      margin: 0 auto;
+      text-align: center;
+    }
+
+    .pricing-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 32px;
+      margin: 60px 0 40px;
+    }
+
+    .pricing-card {
+      background: white;
+      border: 2px solid #E0E0E0;
+      border-radius: 16px;
+      padding: 48px 32px;
+      position: relative;
+      transition: all 0.3s;
+    }
+
+    .pricing-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
+    }
+
+    .pricing-card-highlight {
+      background: linear-gradient(180deg, #E3F2FD 0%, #FFFFFF 100%);
+      border-color: #1565C0;
+      border-width: 3px;
+    }
+
+    .pricing-badge {
+      position: absolute;
+      top: -14px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #4CAF50;
+      color: white;
+      padding: 6px 20px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .pricing-badge-lifetime {
+      background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
+      color: #1A1A1A;
+    }
+
+    .pricing-plan {
+      font-size: 16px;
+      font-weight: 700;
+      color: #6B6B6B;
+      letter-spacing: 0.1em;
+      margin-bottom: 16px;
+      text-transform: uppercase;
+    }
+
+    .pricing-price {
+      margin-bottom: 8px;
+    }
+
+    .price-amount {
+      font-size: 52px;
+      font-weight: 700;
+      color: #1A1A1A;
+    }
+
+    .price-period {
+      font-size: 18px;
+      color: #6B6B6B;
+    }
+
+    .pricing-save {
+      font-size: 14px;
+      color: #4CAF50;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .pricing-desc {
+      font-size: 15px;
+      color: #6B6B6B;
+      line-height: 1.6;
+      margin-bottom: 32px;
+      min-height: 48px;
+    }
+
+    .btn-pricing {
+      width: 100%;
+      padding: 16px;
+      background: white;
+      border: 2px solid #1565C0;
+      border-radius: 10px;
+      color: #1565C0;
+      font-weight: 700;
+      font-size: 15px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-decoration: none;
+      display: inline-block;
+    }
+
+    .btn-pricing:hover {
+      background: #1565C0;
+      color: white;
+    }
+
+    .btn-pricing-highlight {
+      background: #1565C0;
+      color: white;
+    }
+
+    .btn-pricing-highlight:hover {
+      background: #0D47A1;
+      border-color: #0D47A1;
+    }
+
+    /* TESTIMONIALS SECTION */
+    .testimonials {
+      padding: 120px 48px;
+      background: white;
+    }
+
+    .testimonials-content {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .testimonials-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+      gap: 32px;
+      margin-top: 60px;
+    }
+
+    .testimonial-card {
+      background: #FAFAFA;
+      border-radius: 12px;
+      padding: 32px;
+      border: 1px solid #E0E0E0;
+    }
+
+    .testimonial-stars {
+      color: #FFD700;
+      font-size: 20px;
+      margin-bottom: 16px;
+    }
+
+    .testimonial-text {
+      font-size: 15px;
+      color: #424242;
+      line-height: 1.7;
+      margin-bottom: 20px;
+    }
+
+    .testimonial-author {
+      font-size: 14px;
+      font-weight: 700;
+      color: #1A1A1A;
+    }
+
+    .testimonial-role {
+      font-size: 13px;
+      color: #6B6B6B;
+    }
+
+    /* CTA SECTION */
+    .cta {
+      padding: 120px 48px;
+      background: linear-gradient(135deg, #1565C0 0%, #0D47A1 100%);
+      text-align: center;
+    }
+
+    .cta-content {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .cta-title {
+      font-size: 48px;
+      font-weight: 700;
+      color: white;
+      line-height: 1.3;
+      margin-bottom: 24px;
+      letter-spacing: -0.02em;
+    }
+
+    .cta-subtitle {
+      font-size: 20px;
+      color: rgba(255, 255, 255, 0.9);
+      line-height: 1.6;
+      margin-bottom: 48px;
+    }
+
+    .btn-cta {
+      padding: 20px 56px;
+      background: white;
+      border: none;
+      border-radius: 12px;
+      color: #1565C0;
+      font-size: 18px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.3s;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+      text-decoration: none;
+      display: inline-block;
+    }
+
+    .btn-cta:hover {
+      background: #F5F5F5;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+    }
+
+    /* FOOTER */
+    .footer {
+      padding: 60px 48px 40px;
+      background: #1A1A1A;
+      color: white;
+    }
+
+    .footer-content {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 40px;
+    }
+
+    .footer-brand {
+      text-align: center;
+    }
+
+    .footer-logo {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .footer-tagline {
+      font-size: 14px;
+      color: #9E9E9E;
+    }
+
+    .footer-legal {
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+      font-size: 14px;
+      color: #9E9E9E;
+      flex-wrap: wrap;
+    }
+
+    .footer-legal a {
+      color: #9E9E9E;
+      text-decoration: none;
+    }
+
+    .footer-legal a:hover {
+      color: white;
+    }
+
+    /* RESPONSIVE */
+    @media (max-width: 1024px) {
+      .hero-title {
+        font-size: 48px;
+      }
+
+      .hero-subtitle {
+        font-size: 24px;
+      }
+
+      .feature-card {
+        grid-template-columns: 1fr;
+      }
+
+      .feature-card:nth-child(even) {
+        direction: ltr;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .nav {
+        padding: 0 24px;
+        height: 70px;
+      }
+
+      .logo {
+        font-size: 20px;
+      }
+
+      .nav-buttons {
+        gap: 8px;
+      }
+
+      .btn-web-login,
+      .btn-download {
+        padding: 8px 16px;
+        font-size: 13px;
+      }
+
+      .btn-start-free {
+        padding: 8px 20px;
+        font-size: 13px;
+      }
+
+      .hero {
+        padding: 120px 24px 60px;
+      }
+
+      .hero-title {
+        font-size: 36px;
+      }
+
+      .hero-subtitle {
+        font-size: 20px;
+      }
+
+      .hero-description {
+        font-size: 16px;
+      }
+
+      .section-title {
+        font-size: 32px;
+      }
+
+      .features,
+      .pricing,
+      .testimonials,
+      .cta {
+        padding: 80px 24px;
+      }
+
+      .pricing-cards {
+        grid-template-columns: 1fr;
+      }
+
+      .testimonials-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .cta-title {
+        font-size: 32px;
+      }
+
+      .cta-subtitle {
+        font-size: 16px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- NAVIGATION -->
+  <nav class="nav">
+    <div class="logo">TrueFocus</div>
+    <div class="nav-buttons">
+      <a href="https://app.truefocus.app/login" class="btn-web-login">Login Web</a>
+      <a href="#download" class="btn-download">Download App</a>
+      <a href="https://app.truefocus.app/signup" class="btn-start-free">Start Free</a>
+    </div>
+  </nav>
+
+  <!-- HERO SECTION -->
+  <section class="hero">
+    <div class="hero-content">
+      <h1 class="hero-title">Reclaim Deep Focus & Explosive Productivity</h1>
+      <h2 class="hero-subtitle">Escape Endless Scrolling and Cheap Dopamine Traps</h2>
+      <p class="hero-description">
+        Tired of distractions draining your energy and motivation?<br/>
+        <strong>TrueFocus</strong> is the minimalist app built to break addictive patterns — so you crush tasks, hit deadlines, and achieve real goals with unbreakable concentration.
+      </p>
+      <a href="https://app.truefocus.app/signup" class="btn-hero">Start Free – No Card Needed</a>
+      <p class="hero-note">30-day free trial • No credit card required</p>
+    </div>
+    <div class="hero-image">
+      <img src="/images/dashboard-hero.png" alt="TrueFocus Dashboard" />
+    </div>
+  </section>
+
+  <!-- FEATURES SECTION -->
+  <section class="features">
+    <div class="features-content">
+      <h2 class="section-title">Everything Designed to Skyrocket Your Focus and Productivity</h2>
+      
+      <div class="features-grid">
+        <!-- Focus Clock -->
+        <div class="feature-card">
+          <div class="feature-text">
+            <h3>Focus Clock</h3>
+            <p>
+              A clean, no-nonsense timer crafted for true deep work sessions. Track genuine concentration time — no gamified distractions, just pure, accumulating progress that builds real momentum.
+            </p>
+          </div>
+          <img src="/images/focus-clock.png" alt="Focus Clock" class="feature-image" />
+        </div>
+
+        <!-- Monthly Dashboard -->
+        <div class="feature-card">
+          <div class="feature-text">
+            <h3>Monthly Dashboard</h3>
+            <p>
+              Clean, beautiful charts and insights show your wins: tasks crushed, focused hours logged, and dopamine-free patterns revealed. See your productivity soar month after month.
+            </p>
+          </div>
+          <img src="/images/dashboard.png" alt="Monthly Dashboard" class="feature-image" />
+        </div>
+
+        <!-- Theory & SOS Toolkit -->
+        <div class="feature-card">
+          <div class="feature-text">
+            <h3>Theory & SOS Toolkit</h3>
+            <p>
+              Quick, science-backed explanations of dopamine addiction + instant emergency tools to crush cravings when the scroll urge hits. Stay in control without relying on sheer willpower.
+            </p>
+          </div>
+          <img src="/images/rescue-protocol.png" alt="SOS Toolkit" class="feature-image" />
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PRICING SECTION -->
+  <section class="pricing">
+    <div class="pricing-content">
+      <h2 class="section-title">Simple, Transparent Pricing – Pick Your Path to Freedom</h2>
+      
+      <div class="pricing-cards">
+        <!-- Monthly -->
+        <div class="pricing-card">
+          <h3 class="pricing-plan">Monthly</h3>
+          <div class="pricing-price">
+            <span class="price-amount">$6.99</span>
+            <span class="price-period">/month</span>
+          </div>
+          <p class="pricing-desc">
+            Unlimited access to all features • Cloud sync • Cancel anytime
+          </p>
+          <a href="https://app.truefocus.app/signup?plan=monthly" class="btn-pricing">Get Started Free</a>
+        </div>
+
+        <!-- Annual (Highlighted) -->
+        <div class="pricing-card pricing-card-highlight">
+          <div class="pricing-badge">BEST VALUE – Save 30%</div>
+          <h3 class="pricing-plan">Annual</h3>
+          <div class="pricing-price">
+            <span class="price-amount">$59</span>
+            <span class="price-period">/year</span>
+          </div>
+          <p class="pricing-save">~$4.92/month</p>
+          <p class="pricing-desc">
+            All features + priority support • Lock in massive savings • Commit to your best year yet
+          </p>
+          <a href="https://app.truefocus.app/signup?plan=yearly" class="btn-pricing btn-pricing-highlight">Get Started Free – Upgrade Anytime</a>
+        </div>
+
+        <!-- Lifetime -->
+        <div class="pricing-card">
+          <div class="pricing-badge pricing-badge-lifetime">Lifetime Access</div>
+          <h3 class="pricing-plan">One-Time Payment</h3>
+          <div class="pricing-price">
+            <span class="price-amount">$149</span>
+            <span class="price-period">once</span>
+          </div>
+          <p class="pricing-desc">
+            Pay once, own it forever • All future updates included • The smartest investment for lifelong productivity
+          </p>
+          <a href="https://app.truefocus.app/signup?plan=lifetime" class="btn-pricing">Get Started Free – Upgrade to Lifetime</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TESTIMONIALS SECTION -->
+  <section class="testimonials">
+    <div class="testimonials-content">
+      <h2 class="section-title">What Users Are Saying</h2>
+      <p style="text-align: center; color: #6B6B6B; font-size: 18px; margin-top: -40px; margin-bottom: 20px;">
+        Real people reclaiming their focus and lives with TrueFocus.
+      </p>
+      
+      <div class="testimonials-grid">
+        <!-- Testimonial 1 -->
+        <div class="testimonial-card">
+          <div class="testimonial-stars">★★★★★</div>
+          <p class="testimonial-text">
+            "TrueFocus completely changed my daily routine. I used to scroll for 4+ hours a day and barely finish articles. Now I hit deep focus sessions easily, wrote 3x more content, and actually feel motivated again. No more dopamine crashes!"
+          </p>
+          <div class="testimonial-author">Sarah M.</div>
+          <div class="testimonial-role">Freelance Writer</div>
+        </div>
+
+        <!-- Testimonial 2 -->
+        <div class="testimonial-card">
+          <div class="testimonial-stars">★★★★★</div>
+          <p class="testimonial-text">
+            "After years of constant distractions, this app helped me break the cycle. My focused hours went from 2 to 7 per day. Deadlines? Crushed them. Life feels calmer and more accomplished. Worth every penny."
+          </p>
+          <div class="testimonial-author">Alex R.</div>
+          <div class="testimonial-role">Software Engineer</div>
+        </div>
+
+        <!-- Testimonial 3 -->
+        <div class="testimonial-card">
+          <div class="testimonial-stars">★★★★★</div>
+          <p class="testimonial-text">
+            "I was addicted to TikTok and Instagram — studying felt impossible. TrueFocus gave me the structure to study in real blocks without my phone. My grades jumped, and I have energy for hobbies now. Game-changer!"
+          </p>
+          <div class="testimonial-author">Emily T.</div>
+          <div class="testimonial-role">Student</div>
+        </div>
+
+        <!-- Testimonial 4 -->
+        <div class="testimonial-card">
+          <div class="testimonial-stars">★★★★★</div>
+          <p class="testimonial-text">
+            "Scrolling was killing my business ideas. With the Focus Clock and dashboard, I built consistent habits and launched two projects in months instead of years. Productivity exploded — dopamine trap broken!"
+          </p>
+          <div class="testimonial-author">Michael K.</div>
+          <div class="testimonial-role">Entrepreneur</div>
+        </div>
+
+        <!-- Testimonial 5 -->
+        <div class="testimonial-card">
+          <div class="testimonial-stars">★★★★★</div>
+          <p class="testimonial-text">
+            "TrueFocus is the only app that actually helped me stop mindless scrolling at night. I sleep better, wake up energized, and get so much more done during the day. My students noticed I'm more present too!"
+          </p>
+          <div class="testimonial-author">Jessica L.</div>
+          <div class="testimonial-role">Teacher</div>
+        </div>
+
+        <!-- Testimonial 6 -->
+        <div class="testimonial-card">
+          <div class="testimonial-stars">★★★★★</div>
+          <p class="testimonial-text">
+            "From 6+ hours of wasted screen time to focused deep work — this minimalist approach works. The monthly insights show real progress. I feel in control of my time for the first time in years."
+          </p>
+          <div class="testimonial-author">David S.</div>
+          <div class="testimonial-role">Remote Worker</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA SECTION -->
+  <section class="cta">
+    <div class="cta-content">
+      <h2 class="cta-title">
+        Ready to Maximize Productivity, Kill the Scroll, and Break Free from Cheap Dopamine?
+      </h2>
+      <p class="cta-subtitle">
+        Join the movement of people ditching distractions and building a life of real focus, consistent wins, and meaningful progress.<br/>
+        <strong>Your focused, high-achieving future is one click away.</strong>
+      </p>
+      <a href="https://app.truefocus.app/signup" class="btn-cta">Start Free – No Card Needed</a>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="footer">
+    <div class="footer-content">
+      <div class="footer-brand">
+        <h3 class="footer-logo">TrueFocus</h3>
+        <p class="footer-tagline">Reclaim your attention. Deliver what matters.</p>
+      </div>
+      
+      <div class="footer-legal">
+        <p>© 2026 TrueFocus</p>
+        <a href="/privacy">Privacy Policy</a>
+        <a href="/terms">Terms of Service</a>
+        <a href="https://admin.truefocus.app" style="color: #6B6B6B; font-size: 12px;">Admin</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>
+```
+
+---
+
+## ✅ PRONTO PARA USAR!
+
+**Este HTML inclui:**
+- ✅ **3 botões no header:** Login Web, Download App, Start Free
+- ✅ **Copy completa** da sua landing page
+- ✅ **Design minimalista e profissional**
+- ✅ **Totalmente responsivo** (mobile, tablet, desktop)
+- ✅ **Links funcionais** para app.truefocus.app
+- ✅ **Seções:** Hero, Features, Pricing, Testimonials, CTA, Footer
+- ✅ **Pronto para produção**
+
+**Basta substituir:**
+- `/images/dashboard-hero.png` → Screenshot real
+- `/images/focus-clock.png` → Screenshot real
+- `/images/dashboard.png` → Screenshot real
+- `/images/rescue-protocol.png` → Screenshot real
+
+**Cole em um arquivo `index.html` e está pronto! 🚀**
