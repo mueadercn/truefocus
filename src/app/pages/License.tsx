@@ -296,30 +296,6 @@ export function License() {
                 </button>
               </div>
             </div>
-
-            {/* MONTHLY */}
-            <div className="bg-white dark:bg-[#151515] border border-[#E8E8E8] dark:border-[#2A2A2A] rounded-2xl p-6">
-              <div className="space-y-4">
-                <h3 className="font-serif text-2xl font-light">{t.monthly}</h3>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-4xl font-light">{t.monthlyPrice}</span>
-                  <span className="text-sm text-[#6B6B6B] dark:text-[#A0A0A0]">{t.perMonth}</span>
-                </div>
-
-                <div className="space-y-2.5 text-sm text-[#6B6B6B] dark:text-[#A0A0A0]">
-                  <p>{t.monthlyDesc}</p>
-                  <p>{t.cancelAnytime}</p>
-                </div>
-
-                <button
-                  onClick={() => handlePurchase('monthly')}
-                  disabled={loading === 'monthly'}
-                  className="w-full bg-[#1A1A1A] dark:bg-[#F5F5F5] hover:bg-[#2A2A2A] dark:hover:bg-[#E8E8E8] text-white dark:text-[#1A1A1A] py-4 rounded-xl font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {loading === 'monthly' ? t.processing : t.selectPlan}
-                </button>
-              </div>
-            </div>
           </div>
         )}
       </div>

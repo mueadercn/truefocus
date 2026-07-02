@@ -114,9 +114,8 @@ export function Calendar() {
     }
   };
 
-  // Selecionar dia
+  // Selecionar dia (qualquer dia, inclusive passados — para ver o histórico de tarefas)
   const handleSelectDay = (dayData: DayData) => {
-    if (dayData.isPast) return; // Não permite selecionar dias passados
     setSelectedDay(dayData);
   };
 

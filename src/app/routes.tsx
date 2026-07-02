@@ -60,7 +60,7 @@ export const router = createBrowserRouter([
           { path: "dashboard", Component: Dashboard },
           { path: "deadlines", Component: Deadlines },
           { path: "calendario", Component: Calendar },
-          { path: "anotacoes", Component: Notes },
+          { path: "insights", Component: Notes },
           { path: "configuracoes", Component: Configuracoes },
           { path: "focus-clock", Component: FocusClock },
 

@@ -87,7 +87,8 @@ export function VoiceScheduleModal({
     }
 
     const recognition = new SpeechRecognition();
-    recognition.lang = language === 'pt' ? 'pt-BR' : 'en-US';
+    // Fixado em pt-BR (igual ao Voice Tasks): reconhece português e também inglês
+    recognition.lang = 'pt-BR';
     recognition.continuous = true;
     recognition.interimResults = false;
 

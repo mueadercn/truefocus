@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Loader2 } from 'lucide-react';
+import { Mic, Square, Loader2, ScrollText } from 'lucide-react';
+import { format, parseISO } from 'date-fns';
 import {
   Dialog,
   DialogContent,
@@ -10,6 +11,7 @@ import {
 } from './ui/dialog';
 import { Button } from './ui/button';
 import { toast } from 'sonner';
+import type { Note } from '../types';
 
 interface NotesModalProps {
   open: boolean;
@@ -17,6 +19,7 @@ interface NotesModalProps {
   date: string; // YYYY-MM-DD
   displayDate: string; // texto amigável do dia
   language: 'en' | 'pt';
+  todaysNotes: Note[]; // insights já registrados no dia selecionado
   onSave: (content: string) => Promise<void>;
   translations: any;
 }
@@ -27,6 +30,7 @@ export function NotesModal({
   date,
   displayDate,
   language,
+  todaysNotes,
   onSave,
   translations,
 }: NotesModalProps) {
@@ -78,7 +82,8 @@ export function NotesModal({
     }
 
     const recognition = new SpeechRecognition();
-    recognition.lang = language === 'pt' ? 'pt-BR' : 'en-US';
+    // Fixado em pt-BR (igual ao Voice Tasks): reconhece português e também inglês
+    recognition.lang = 'pt-BR';
     recognition.continuous = true;
     recognition.interimResults = false;
 
@@ -136,13 +141,31 @@ export function NotesModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md bg-[#FFFFFF] dark:bg-[#151515] border border-[#E8E8E8] dark:border-[#2A2A2A]">
         <DialogHeader>
-          <DialogTitle className="font-serif text-2xl font-light text-[#1A1A1A] dark:text-[#F5F5F5]">
-            {t.notesTitle || 'Anotações'}
+          <DialogTitle className="font-serif text-2xl font-light text-[#1A1A1A] dark:text-[#F5F5F5] flex items-center gap-2">
+            <ScrollText className="w-5 h-5 text-[#8B7355] dark:text-[#A89580]" />
+            {t.notesTitle || 'Daily Insights'}
           </DialogTitle>
           <DialogDescription className="text-[#6B6B6B] dark:text-[#A0A0A0] capitalize">
             {displayDate}
           </DialogDescription>
         </DialogHeader>
+
+        {/* Insights já registrados hoje */}
+        {todaysNotes.length > 0 && (
+          <div className="max-h-40 overflow-y-auto rounded-xl border border-[#E8E8E8] dark:border-[#2A2A2A] bg-[#FAF6EF] dark:bg-[#0A0A0A] p-3 space-y-2">
+            <p className="text-[10px] uppercase tracking-wider text-[#8B7355] dark:text-[#A89580] font-medium">
+              {t.todayInsights || "Today's insights"}
+            </p>
+            {todaysNotes.map((n) => (
+              <div key={n.id} className="text-sm text-[#1A1A1A] dark:text-[#F5F5F5]">
+                <span className="text-[10px] text-[#8B7355] dark:text-[#A89580] font-medium mr-1.5">
+                  {format(parseISO(n.created_at), 'HH:mm')}
+                </span>
+                <span className="whitespace-pre-wrap break-words">{n.content}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="relative">
           <textarea

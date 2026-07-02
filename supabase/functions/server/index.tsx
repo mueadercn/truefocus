@@ -24,9 +24,11 @@ const STRIPE_WEBHOOK_SECRET = Deno.env.get('STRIPE_WEBHOOK_SECRET');
 //   monthly: 'price_1T0k2k00ioXrcGDpiQGLQ1eN'  ❌ BRL
 //   annual: 'price_1T0k2E00ioXrcGDpCBUgPkc9'   ❌ BRL
 const STRIPE_PRICES = {
-  monthly: 'price_1T5qCR00ioXrcGDp2ZfkLMcJ',   // ✅ $6.99 USD/month
   annual: 'price_1T5qCx00ioXrcGDpVqRkNZkI',    // ✅ $59 USD/year
-  lifetime: 'price_1T5qDQ00ioXrcGDpiMweUhZL'   // ✅ $149 USD one-time
+  // ⚠️ Lifetime agora é $179 — se usar checkout hospedado, crie um novo Price de $179 no
+  // painel do Stripe e substitua o ID abaixo. O fluxo atual (create-payment-intent) usa o
+  // valor fixo em centavos (17900), então já cobra $179 independentemente deste Price ID.
+  lifetime: 'price_1T5qDQ00ioXrcGDpiMweUhZL'   // (Price antigo de $149 — atualizar no Stripe)
 };
 
 // Create Supabase client with SERVICE_ROLE_KEY for admin operations
@@ -462,7 +464,7 @@ app.post("/make-server-41f917a5/signup", async (c) => {
     // Create trial license for the new user
     try {
       const trialExpiresAt = new Date();
-      trialExpiresAt.setDate(trialExpiresAt.getDate() + 30);
+      trialExpiresAt.setDate(trialExpiresAt.getDate() + 10);
 
       const { error: licenseError } = await supabaseAdmin
         .from('licenses')
@@ -942,7 +944,7 @@ app.post("/make-server-41f917a5/stripe/create-checkout", async (c) => {
 
     console.log('✅ User authenticated:', user.email);
 
-    if (!['monthly', 'annual', 'lifetime'].includes(plan)) {
+    if (!['annual', 'lifetime'].includes(plan)) {
       console.error('❌ Invalid plan:', plan);
       return c.json({ error: 'Invalid plan' }, 400);
     }
@@ -1107,7 +1109,7 @@ app.post("/make-server-41f917a5/stripe/create-payment-intent", async (c) => {
 
     console.log('✅ User authenticated:', user.email);
 
-    if (!['monthly', 'annual', 'lifetime'].includes(plan)) {
+    if (!['annual', 'lifetime'].includes(plan)) {
       console.error('❌ Invalid plan:', plan);
       return c.json({ error: 'Invalid plan' }, 400);
     }
@@ -1168,14 +1170,12 @@ app.post("/make-server-41f917a5/stripe/create-payment-intent", async (c) => {
     let description: string;
     
     if (plan === 'lifetime') {
-      amount = 14900; // $149.00
+      amount = 17900; // $179.00
       description = 'TrueFocus Pro - Lifetime Access';
-    } else if (plan === 'annual') {
+    } else {
+      // annual (o plano mensal foi removido)
       amount = 5900; // $59.00
       description = 'TrueFocus Pro - Annual Subscription';
-    } else {
-      amount = 699; // $6.99
-      description = 'TrueFocus Pro - Monthly Subscription';
     }
 
     console.log(`💰 Creating Payment Intent for ${amount / 100} USD`);
@@ -1943,7 +1943,7 @@ app.get("/make-server-41f917a5/admin/users", async (c) => {
       let expiresAt = null;
       if (!license) {
         const trialEnd = new Date();
-        trialEnd.setDate(trialEnd.getDate() + 30);
+        trialEnd.setDate(trialEnd.getDate() + 10);
         expiresAt = trialEnd.toISOString();
       }
       
@@ -2006,7 +2006,7 @@ app.get("/make-server-41f917a5/admin/stats", async (c) => {
         .from('licenses')
         .select('license_type, stripe_customer_id')
         .gte('created_at', startOfMonth.toISOString())
-        .in('license_type', ['monthly', 'annual', 'lifetime'])
+        .in('license_type', ['annual', 'lifetime'])
         .not('stripe_customer_id', 'is', null),
       
       // Get weekly licenses - ONLY count licenses with stripe_customer_id
@@ -2014,24 +2014,22 @@ app.get("/make-server-41f917a5/admin/stats", async (c) => {
         .from('licenses')
         .select('license_type, stripe_customer_id')
         .gte('created_at', startOfWeek.toISOString())
-        .in('license_type', ['monthly', 'annual', 'lifetime'])
+        .in('license_type', ['annual', 'lifetime'])
         .not('stripe_customer_id', 'is', null)
     ]);
 
     // Calculate revenue this month
     let revenueThisMonth = 0;
     monthlyLicensesResult.data?.forEach(license => {
-      if (license.license_type === 'monthly') revenueThisMonth += 6.99;
       if (license.license_type === 'annual') revenueThisMonth += 59;
-      if (license.license_type === 'lifetime') revenueThisMonth += 149;
+      if (license.license_type === 'lifetime') revenueThisMonth += 179;
     });
 
     // Calculate revenue this week
     let revenueThisWeek = 0;
     weeklyLicensesResult.data?.forEach(license => {
-      if (license.license_type === 'monthly') revenueThisWeek += 6.99;
       if (license.license_type === 'annual') revenueThisWeek += 59;
-      if (license.license_type === 'lifetime') revenueThisWeek += 149;
+      if (license.license_type === 'lifetime') revenueThisWeek += 179;
     });
 
     const stats = {

@@ -1,4 +1,4 @@
-import { Home, LifeBuoy, BookOpen, BarChart3, Settings, Menu, X, ChevronLeft, ChevronRight, Clock, HelpCircle, CalendarDays, Target, PenLine, RefreshCw, CloudOff } from 'lucide-react';
+import { Home, LifeBuoy, BookOpen, BarChart3, Settings, Menu, X, ChevronLeft, ChevronRight, Clock, HelpCircle, CalendarDays, Target, ScrollText, RefreshCw, CloudOff } from 'lucide-react';
 import { Outlet, useLocation, useNavigate } from 'react-router';
 import { useState, useEffect, useMemo } from 'react';
 import {
@@ -54,7 +54,11 @@ export function Layout() {
   useEffect(() => {
     // Don't check if still loading or no user
     if (loading || !user) return;
-    
+
+    // OFFLINE: nunca travar/redirecionar — o usuário pode estar sem internet com
+    // licença válida em cache. O bloqueio só vale quando estamos online.
+    if (!syncStatus.online) return;
+
     if (!accessStatus.hasAccess) {
       console.log('🔒 Layout: Access denied - redirecting to license page', {
         hasAccess: accessStatus.hasAccess,
@@ -62,14 +66,14 @@ export function Layout() {
         licenseType: accessStatus.licenseType,
         currentPath: location.pathname
       });
-      
+
       // Only allow access to license page when expired
       if (location.pathname !== '/home/licenca') {
         console.log('🔒 Forcing redirect to /home/licenca');
         navigate('/home/licenca', { replace: true });
       }
     }
-  }, [accessStatus.hasAccess, loading, user, location.pathname, navigate, accessStatus.reason, accessStatus.licenseType]);
+  }, [accessStatus.hasAccess, loading, user, location.pathname, navigate, accessStatus.reason, accessStatus.licenseType, syncStatus.online]);
 
   // Apply theme
   useEffect(() => {
@@ -286,17 +290,17 @@ export function Layout() {
                     </button>
                     <button
                       onClick={() => {
-                        navigate('/home/anotacoes');
+                        navigate('/home/insights');
                         setMenuOpen(false);
                       }}
                       className={`flex items-center gap-4 px-4 py-4 rounded-lg text-left transition-all duration-300 ${
-                        isActive('/home/anotacoes')
+                        isActive('/home/insights')
                           ? 'bg-[#8B7355] dark:bg-[#A89580] text-white'
                           : 'hover:bg-[#FAFAF8] dark:hover:bg-[#2A2A2A]/50 text-[#1A1A1A] dark:text-[#F5F5F5]'
                       }`}
                     >
-                      <PenLine className="w-5 h-5" />
-                      <span className="font-serif text-base font-light">{t.notesTitle || 'Anotações'}</span>
+                      <ScrollText className="w-5 h-5" />
+                      <span className="font-serif text-base font-light">{t.notesTitle || 'Daily Insights'}</span>
                     </button>
                     <button
                       onClick={() => {

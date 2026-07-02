@@ -30,7 +30,7 @@ export const licenseApi = {
 
     const now = new Date();
     const trialEnd = new Date(now);
-    trialEnd.setDate(trialEnd.getDate() + 30); // 30 dias de trial
+    trialEnd.setDate(trialEnd.getDate() + 10); // 10 dias de trial
 
     const { data, error } = await supabase
       .from('licenses')

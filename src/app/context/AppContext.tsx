@@ -12,6 +12,8 @@ import {
   cacheGetAll,
   cacheSetSettings,
   cacheGetSettings,
+  cacheSetLicense,
+  cacheGetLicense,
   enqueueOp,
   clearOfflineData,
 } from '../lib/offline-db';
@@ -365,18 +367,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (cachedSettings) setSettings(cachedSettings);
         }
 
-        // License (somente online; offline mantém acesso permissivo já definido)
+        // License: online busca do servidor e cacheia; offline usa o cache local
         try {
           const licenseData = await licenseApi.get();
           if (licenseData) {
             setLicense(licenseData);
             setAccessStatus(licenseApi.checkAccess(licenseData));
+            await cacheSetLicense(licenseData);
           } else {
             setLicense(null);
             setAccessStatus(licenseApi.checkAccess(null));
           }
         } catch (e) {
-          console.warn('⚠️ Licença offline - mantendo acesso atual', e);
+          console.warn('⚠️ Licença offline - usando cache local', e);
+          // Offline/erro: recupera a última licença conhecida do cache
+          const cachedLicense = await cacheGetLicense<License>();
+          if (cachedLicense) {
+            setLicense(cachedLicense);
+            setAccessStatus(licenseApi.checkAccess(cachedLicense));
+          }
+          // Sem cache: mantém o accessStatus permissivo inicial (não trava o usuário)
         }
 
         // Se estamos online, tenta esvaziar a fila de mudanças offline e marca sync
@@ -569,16 +579,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setLicense(licenseData);
       const status = licenseApi.checkAccess(licenseData);
       setAccessStatus(status);
+      await cacheSetLicense(licenseData);
     } catch (error) {
       console.error('Error refreshing license:', error);
-      const defaultStatus: AccessStatus = {
-        hasAccess: false,
-        reason: 'Error',
-        daysRemaining: 0,
-        displayText: '🚫 Erro',
-        licenseType: 'free'
-      };
-      setAccessStatus(defaultStatus);
+      // OFFLINE: NÃO travar o usuário — mantém o acesso atual (licença em cache).
+      // Só marca erro de acesso se estivermos realmente online.
+      if (isOnline()) {
+        const defaultStatus: AccessStatus = {
+          hasAccess: false,
+          reason: 'Error',
+          daysRemaining: 0,
+          displayText: '🚫 Erro',
+          licenseType: 'free'
+        };
+        setAccessStatus(defaultStatus);
+      }
     }
   };
 

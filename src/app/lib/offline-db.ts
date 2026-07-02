@@ -101,6 +101,16 @@ export async function cacheGetSettings<T = any>(): Promise<T | null> {
   }
 }
 
+// ---- Licença (para acesso offline) ----
+
+export async function cacheSetLicense(license: any): Promise<void> {
+  await setMeta('license', license);
+}
+
+export async function cacheGetLicense<T = any>(): Promise<T | null> {
+  return getMeta<T>('license');
+}
+
 // ---- Fila de sincronização ----
 
 export async function enqueueOp(op: Omit<SyncOp, 'id' | 'created_at'>): Promise<void> {

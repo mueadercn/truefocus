@@ -33,6 +33,18 @@ const CATEGORY_COLORS: Record<string, string> = {
 // Categorias principais mostradas na seção de horas
 const MAIN_CATEGORIES = ['Work', 'Exercise', 'Study', 'Critical Thinking', 'Spirituality'];
 
+// Faixas de cor por quantidade de tarefas concluídas no dia
+const TIER_BRONZE = '#CD7F32';
+const TIER_SILVER = '#9CA3AF';
+const TIER_GOLD = '#D4AF37';
+
+// Retorna a cor da barra conforme a quantidade: 1-2 bronze, 3-4 prata, 5+ ouro
+function getTierColor(count: number): string {
+  if (count >= 5) return TIER_GOLD;
+  if (count >= 3) return TIER_SILVER;
+  return TIER_BRONZE; // 1-2
+}
+
 export function Dashboard() {
   const navigate = useNavigate();
   const { tasks, rescues, loading, settings } = useApp();
@@ -44,6 +56,8 @@ export function Dashboard() {
   const [selectedMonth, setSelectedMonth] = useState<Date>(new Date());
   // Dia selecionado dentro do mês (para expandir tarefas concluídas)
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  // Ano selecionado no gráfico anual (padrão: ano atual)
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
 
   // Tradução de nomes de categoria
   const translateCategory = (category: string): string => {
@@ -126,6 +140,23 @@ export function Dashboard() {
 
   const monthName = format(selectedMonth, 'MMMM yyyy', { locale: dateLocale });
   const isCurrentMonth = isSameMonth(selectedMonth, new Date());
+
+  // Dados anuais: tarefas concluídas por mês (Jan–Dez) do ano selecionado
+  const annualData = useMemo(() => {
+    const months = new Array(12).fill(0);
+    tasks.forEach((task) => {
+      if (!task.completed) return;
+      const d = parseISO(getCompletedDate(task));
+      if (d.getFullYear() === selectedYear) {
+        months[d.getMonth()]++;
+      }
+    });
+    const maxMonth = Math.max(1, ...months);
+    const totalYear = months.reduce((a, b) => a + b, 0);
+    return { months, maxMonth, totalYear };
+  }, [tasks, selectedYear]);
+
+  const currentYear = new Date().getFullYear();
 
   // Tarefas do dia selecionado
   const selectedDayTasks = selectedDay
@@ -220,7 +251,7 @@ export function Dashboard() {
         </div>
       </div>
 
-      {monthData.totalCompleted === 0 && monthData.rescues.length === 0 ? (
+      {monthData.totalCompleted === 0 && monthData.rescues.length === 0 && annualData.totalYear === 0 ? (
         <div className="bg-[#FFFFFF] dark:bg-[#0A0A0A] rounded-2xl p-10 border border-[#E8E8E8] dark:border-[#2A2A2A] text-center">
           <p className="text-[#6B6B6B] dark:text-[#A0A0A0]">{t.noMetricsYet}</p>
           <p className="text-sm text-[#6B6B6B] dark:text-[#A0A0A0] mt-2">{t.completeTasksToSee}</p>
@@ -237,6 +268,7 @@ export function Dashboard() {
               {monthData.byDay.map((d) => {
                 const heightPct = d.count > 0 ? (d.count / monthData.maxCount) * 100 : 0;
                 const isSelected = selectedDay === d.dateStr;
+                const barColor = d.count > 0 ? getTierColor(d.count) : undefined;
                 return (
                   <button
                     key={d.dateStr}
@@ -247,13 +279,12 @@ export function Dashboard() {
                     <div className="w-full flex items-end justify-center h-full">
                       <div
                         className={`w-full rounded-t-sm transition-all duration-200 ${
-                          isSelected
-                            ? 'bg-[#8B7355] dark:bg-[#A89580]'
-                            : d.count > 0
-                            ? 'bg-[#8B7355]/40 dark:bg-[#A89580]/40 group-hover:bg-[#8B7355]/70 dark:group-hover:bg-[#A89580]/70'
-                            : 'bg-[#E8E8E8] dark:bg-[#2A2A2A]'
-                        }`}
-                        style={{ height: d.count > 0 ? `${Math.max(heightPct, 6)}%` : '2px' }}
+                          d.count === 0 ? 'bg-[#E8E8E8] dark:bg-[#2A2A2A]' : ''
+                        } ${isSelected ? 'ring-2 ring-[#1A1A1A] dark:ring-[#F5F5F5] ring-offset-1' : 'group-hover:opacity-80'}`}
+                        style={{
+                          height: d.count > 0 ? `${Math.max(heightPct, 6)}%` : '2px',
+                          backgroundColor: barColor,
+                        }}
                       />
                     </div>
                   </button>
@@ -269,6 +300,22 @@ export function Dashboard() {
                   )}
                 </div>
               ))}
+            </div>
+
+            {/* Legenda de cores por quantidade */}
+            <div className="flex items-center justify-center gap-4 mt-3 pt-3 border-t border-[#E8E8E8] dark:border-[#2A2A2A]">
+              <div className="flex items-center gap-1.5">
+                <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: TIER_BRONZE }} />
+                <span className="text-[10px] text-[#6B6B6B] dark:text-[#A0A0A0]">1–2</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: TIER_SILVER }} />
+                <span className="text-[10px] text-[#6B6B6B] dark:text-[#A0A0A0]">3–4</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: TIER_GOLD }} />
+                <span className="text-[10px] text-[#6B6B6B] dark:text-[#A0A0A0]">5+</span>
+              </div>
             </div>
 
             {/* Tarefas do dia selecionado */}
@@ -335,6 +382,78 @@ export function Dashboard() {
                 );
               })}
             </div>
+          </div>
+
+          {/* Gráfico ANUAL: tarefas concluídas por mês */}
+          <div className="bg-[#FFFFFF] dark:bg-[#151515] rounded-2xl p-4 border border-[#E8E8E8] dark:border-[#2A2A2A]">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-xs text-[#6B6B6B] dark:text-[#A0A0A0] uppercase tracking-wider">
+                {settings.language === 'pt' ? 'Evolução anual · concluídas' : 'Annual evolution · completed'}
+              </p>
+              {/* Navegação de ano */}
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setSelectedYear((y) => y - 1)}
+                  className="p-1 hover:bg-[#FAFAF8] dark:hover:bg-[#2A2A2A]/50 rounded transition-all active:scale-95"
+                >
+                  <ChevronLeft className="w-4 h-4 text-[#6B6B6B] dark:text-[#A0A0A0]" />
+                </button>
+                <span className="text-sm font-medium text-[#1A1A1A] dark:text-[#F5F5F5] w-12 text-center">
+                  {selectedYear}
+                </span>
+                <button
+                  onClick={() => setSelectedYear((y) => Math.min(y + 1, currentYear))}
+                  disabled={selectedYear >= currentYear}
+                  className={`p-1 rounded transition-all ${
+                    selectedYear >= currentYear
+                      ? 'opacity-30 cursor-not-allowed'
+                      : 'hover:bg-[#FAFAF8] dark:hover:bg-[#2A2A2A]/50 active:scale-95'
+                  }`}
+                >
+                  <ChevronRight className="w-4 h-4 text-[#6B6B6B] dark:text-[#A0A0A0]" />
+                </button>
+              </div>
+            </div>
+
+            {/* Barras dos 12 meses */}
+            <div className="flex items-end justify-between gap-1 h-32">
+              {annualData.months.map((count, i) => {
+                const heightPct = count > 0 ? (count / annualData.maxMonth) * 100 : 0;
+                return (
+                  <div key={i} className="flex-1 h-full flex flex-col items-center justify-end" title={`${count}`}>
+                    {count > 0 && (
+                      <span className="text-[9px] font-medium text-[#8B7355] dark:text-[#A89580] mb-0.5">
+                        {count}
+                      </span>
+                    )}
+                    <div className="w-full flex items-end justify-center h-full">
+                      <div
+                        className={`w-full rounded-t-sm transition-all duration-300 ${
+                          count === 0 ? 'bg-[#E8E8E8] dark:bg-[#2A2A2A]' : 'bg-[#8B7355] dark:bg-[#A89580]'
+                        }`}
+                        style={{ height: count > 0 ? `${Math.max(heightPct, 6)}%` : '2px' }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {/* Rótulos dos meses */}
+            <div className="flex items-center justify-between gap-1 mt-1">
+              {annualData.months.map((_, i) => (
+                <div key={i} className="flex-1 text-center">
+                  <span className="text-[8px] text-[#6B6B6B] dark:text-[#A0A0A0] capitalize">
+                    {format(new Date(selectedYear, i, 1), 'MMM', { locale: dateLocale }).slice(0, 3)}
+                  </span>
+                </div>
+              ))}
+            </div>
+            {/* Total do ano */}
+            <p className="text-center text-xs text-[#6B6B6B] dark:text-[#A0A0A0] mt-3 pt-3 border-t border-[#E8E8E8] dark:border-[#2A2A2A]">
+              {settings.language === 'pt'
+                ? `${annualData.totalYear} tarefas concluídas em ${selectedYear}`
+                : `${annualData.totalYear} tasks completed in ${selectedYear}`}
+            </p>
           </div>
 
           {/* Histórico de Socorros (recolhível) */}

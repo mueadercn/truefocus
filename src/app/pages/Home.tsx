@@ -16,7 +16,7 @@ import {
   Play,
   Check,
   Plus,
-  PenLine,
+  ScrollText,
   CalendarPlus,
   ListChecks,
   ChevronLeft, 
@@ -59,7 +59,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Checkbox } from '../components/ui/checkbox';
 
 export function Home() {
-  const { tasks, deadlines, selectedDate, setSelectedDate, addTask, updateTask, completeTask, deleteTask, addNote, loading, settings } = useApp();
+  const { tasks, deadlines, notes, selectedDate, setSelectedDate, addTask, updateTask, completeTask, deleteTask, addNote, loading, settings } = useApp();
   const navigate = useNavigate();
   const [showNewTaskModal, setShowNewTaskModal] = useState(false);
   const [taskToComplete, setTaskToComplete] = useState<Task | null>(null);
@@ -529,16 +529,18 @@ export function Home() {
             </button>
           </div>
 
-          {/* Botão de Anotações - entre o topo e as tarefas */}
-          <button
-            onClick={() => setShowNotesModal(true)}
-            className="w-full flex items-center gap-2 px-4 py-2.5 bg-[#FFFFFF] dark:bg-[#151515] border border-dashed border-[#E8E8E8] dark:border-[#2A2A2A] rounded-lg hover:border-[#8B7355] dark:hover:border-[#A89580] transition-all duration-200 active:scale-[0.99] group"
-          >
-            <PenLine className="w-4 h-4 text-[#8B7355] dark:text-[#A89580]" />
-            <span className="text-sm text-[#6B6B6B] dark:text-[#A0A0A0] group-hover:text-[#8B7355] dark:group-hover:text-[#A89580] transition-colors">
-              {t.notesButton || 'Anotações do dia'}
-            </span>
-          </button>
+          {/* Botão de Daily Insights - centralizado, entre o topo e as tarefas */}
+          <div className="flex justify-center">
+            <button
+              onClick={() => setShowNotesModal(true)}
+              className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-b from-[#FAF6EF] to-[#F3ECDD] dark:from-[#1A1610] dark:to-[#12100A] border border-[#8B7355]/40 dark:border-[#A89580]/40 rounded-full shadow-sm hover:shadow-md hover:border-[#8B7355] dark:hover:border-[#A89580] transition-all duration-200 active:scale-95 group"
+            >
+              <ScrollText className="w-4 h-4 text-[#8B7355] dark:text-[#A89580]" />
+              <span className="text-sm font-medium text-[#8B7355] dark:text-[#A89580]">
+                {t.notesButton || 'Daily Insights'}
+              </span>
+            </button>
+          </div>
 
           {/* Task List */}
           <div className="space-y-3">
@@ -644,13 +646,14 @@ export function Home() {
         </div>
       )}
 
-      {/* Notes Modal */}
+      {/* Daily Insights Modal */}
       <NotesModal
         open={showNotesModal}
         onOpenChange={setShowNotesModal}
         date={selectedDate}
         displayDate={displayDate}
         language={settings.language}
+        todaysNotes={notes.filter((n) => n.date === selectedDate)}
         onSave={(content) => addNote(selectedDate, content)}
         translations={t}
       />
