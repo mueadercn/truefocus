@@ -120,7 +120,7 @@ export function DraggableTask({
         WebkitTouchCallout: 'none', // Previne callout no iOS
       }}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         {/* Drag Handle */}
         <div
           ref={dragHandleRef}
@@ -132,7 +132,7 @@ export function DraggableTask({
         {/* Category Indicator */}
         {task.category && (
           <div
-            className={`w-1 h-10 rounded-full ${getCategoryColor(task.category)}`}
+            className={`w-1 h-6 rounded-full flex-shrink-0 ${getCategoryColor(task.category)}`}
           />
         )}
 

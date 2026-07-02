@@ -547,37 +547,42 @@ export function Home() {
               return (
                 <div
                   key={task.id}
-                  className="group bg-[#FFFFFF] dark:bg-[#151515] rounded-xl p-6 border border-[#E8E8E8] dark:border-[#2A2A2A] opacity-50 hover:opacity-70 transition-all duration-300"
+                  className="group bg-[#FFFFFF] dark:bg-[#151515] rounded-lg p-3 border border-[#E8E8E8] dark:border-[#2A2A2A] opacity-50 hover:opacity-70 transition-all duration-300"
                 >
-                  <div className="flex items-start gap-4">
-                    <Check className="w-6 h-6 text-[#8B7355] dark:text-[#A89580] flex-shrink-0 mt-0.5" />
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <p className="text-base font-normal line-through text-[#6B6B6B] dark:text-[#A0A0A0]">{task.text}</p>
+                  <div className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-[#8B7355] dark:text-[#A89580] flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-normal line-through text-[#6B6B6B] dark:text-[#A0A0A0] leading-snug">{task.text}</p>
                         {isEarly && (
-                          <span className="px-2 py-0.5 bg-[#4CAF50]/10 dark:bg-[#66BB6A]/10 border border-[#4CAF50] dark:border-[#66BB6A] text-[#4CAF50] dark:text-[#66BB6A] text-[10px] font-semibold rounded uppercase tracking-wider">
+                          <span className="px-1.5 py-0.5 bg-[#4CAF50]/10 dark:bg-[#66BB6A]/10 border border-[#4CAF50] dark:border-[#66BB6A] text-[#4CAF50] dark:text-[#66BB6A] text-[9px] font-semibold rounded uppercase tracking-wider flex-shrink-0">
                             Antecipada
                           </span>
                         )}
                       </div>
-                      {(task.duration_min || task.category) && (
-                        <p className="text-sm text-[#6B6B6B] dark:text-[#A0A0A0]">
-                          {task.duration_min && `${task.duration_min}min`}
-                          {task.duration_min && task.category && ' · '}
-                          {task.category}
-                        </p>
-                      )}
-                      {task.completed_at && (
-                        <p className="text-xs text-[#6B6B6B] dark:text-[#A0A0A0] mt-2">
-                          Concluída às {format(parseISO(task.completed_at), 'HH:mm')}
-                        </p>
-                      )}
+                      <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                        {task.duration_min && (
+                          <span className="text-xs text-[#6B6B6B] dark:text-[#A0A0A0]">{task.duration_min}min</span>
+                        )}
+                        {task.duration_min && task.category && (
+                          <span className="text-xs text-[#6B6B6B] dark:text-[#A0A0A0]">·</span>
+                        )}
+                        {task.category && (
+                          <span className="text-xs text-[#6B6B6B] dark:text-[#A0A0A0]">{task.category}</span>
+                        )}
+                        {task.completed_at && (
+                          <>
+                            {(task.duration_min || task.category) && <span className="text-xs text-[#6B6B6B] dark:text-[#A0A0A0]">·</span>}
+                            <span className="text-xs text-[#6B6B6B] dark:text-[#A0A0A0]">{format(parseISO(task.completed_at), 'HH:mm')}</span>
+                          </>
+                        )}
+                      </div>
                     </div>
                     <button
                       onClick={() => handleEditClick(task)}
-                      className="p-4 hover:bg-[#8B7355]/10 dark:hover:bg-[#A89580]/10 rounded-xl transition-all duration-300 flex-shrink-0 min-w-[48px] min-h-[48px] flex items-center justify-center"
+                      className="p-1.5 hover:bg-[#8B7355]/10 dark:hover:bg-[#A89580]/10 rounded-lg transition-all duration-300 flex-shrink-0"
                     >
-                      <Pencil className="w-5 h-5 text-[#6B6B6B] dark:text-[#A0A0A0]" />
+                      <Pencil className="w-4 h-4 text-[#6B6B6B] dark:text-[#A0A0A0]" />
                     </button>
                   </div>
                 </div>

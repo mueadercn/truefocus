@@ -1,4 +1,4 @@
-import { Home, LifeBuoy, BookOpen, BarChart3, Settings, Menu, X, ChevronLeft, ChevronRight, Clock, FileBarChart, HelpCircle, CalendarDays, Target } from 'lucide-react';
+import { Home, LifeBuoy, BookOpen, BarChart3, Settings, Menu, X, ChevronLeft, ChevronRight, Clock, HelpCircle, CalendarDays, Target } from 'lucide-react';
 import { Outlet, useLocation, useNavigate } from 'react-router';
 import { useState, useEffect, useMemo } from 'react';
 import {
@@ -9,7 +9,6 @@ import {
   SheetTrigger,
 } from './ui/sheet';
 import { useApp } from '../context/AppContext';
-import { ReportModal } from './ReportModal';
 import { format, parseISO, addDays, subDays } from 'date-fns';
 import { ptBR, enUS } from 'date-fns/locale';
 import { translations } from '../utils/translations';
@@ -19,8 +18,6 @@ export function Layout() {
   const location = useLocation();
   const { user, settings, selectedDate, setSelectedDate, resetToToday, loading, accessStatus } = useApp();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [reportModalOpen, setReportModalOpen] = useState(false);
-  
   const t = translations[settings.language];
   const dateLocale = settings.language === 'pt' ? ptBR : enUS;
 
@@ -119,9 +116,6 @@ export function Layout() {
 
   const isHomePage = location.pathname === '/home' && !location.pathname.startsWith('/home/dashboard') && !location.pathname.startsWith('/home/teoria') && !location.pathname.startsWith('/home/configuracoes') && !location.pathname.startsWith('/home/socorro');
 
-  // Ocultar Layout completamente na página de Relatório Anual
-  const isReportPage = isActive('/home/relatorio-anual');
-
   // Detectar se está na página do Calendário
   const isCalendarPage = isActive('/home/calendario');
   
@@ -132,7 +126,7 @@ export function Layout() {
     <div className="min-h-screen bg-[#FAFAF8] dark:bg-[#0A0A0A] text-[#1A1A1A] dark:text-[#F5F5F5] transition-colors duration-300">
       {/* Header - Com navegação de dias (oculto na página Goals) */}
       {!isGoalsPage && (
-        <header className={`fixed top-0 left-0 right-0 z-40 bg-[#FAFAF8]/95 dark:bg-[#0A0A0A]/95 backdrop-blur-xl border-b border-[#E8E8E8] dark:border-[#2A2A2A] transition-all duration-300 ${isReportPage ? 'print:hidden' : ''}`}>
+        <header className="fixed top-0 left-0 right-0 z-40 bg-[#FAFAF8]/95 dark:bg-[#0A0A0A]/95 backdrop-blur-xl border-b border-[#E8E8E8] dark:border-[#2A2A2A] transition-all duration-300">
           <div className={`max-w-[800px] mx-auto px-5 md:px-10 ${isCalendarPage ? 'py-5' : 'py-10'}`}>
             {isHomePage ? (
               // Navegação de dias na página Home
@@ -187,7 +181,7 @@ export function Layout() {
 
       {/* Bottom Navigation - Com Menu e Gradiente (oculto no Calendário e Goals) */}
       {!isCalendarPage && !isGoalsPage && (
-        <div className={`fixed bottom-6 left-0 right-0 z-40 pointer-events-none ${isReportPage ? 'print:hidden' : ''}`}>
+        <div className="fixed bottom-6 left-0 right-0 z-40 pointer-events-none">
           {/* Gradiente para cobrir texto que passa por baixo */}
           <div className="absolute bottom-0 left-0 right-0 h-40 bg-gradient-to-t from-[#FAFAF8] via-[#FAFAF8]/80 to-transparent dark:from-[#0A0A0A] dark:via-[#0A0A0A]/80 dark:to-transparent" />
           
@@ -293,16 +287,6 @@ export function Layout() {
                       <BarChart3 className="w-5 h-5" />
                       <span className="font-serif text-base font-light">{t.metrics}</span>
                     </button>
-                    <button
-                      onClick={() => {
-                        setMenuOpen(false);
-                        setReportModalOpen(true);
-                      }}
-                      className="flex items-center gap-4 px-4 py-4 rounded-lg text-left transition-all duration-300 hover:bg-[#FAFAF8] dark:hover:bg-[#2A2A2A]/50 text-[#1A1A1A] dark:text-[#F5F5F5]"
-                    >
-                      <FileBarChart className="w-5 h-5" />
-                      <span className="font-serif text-base font-light">{t.annualReport}</span>
-                    </button>
                     
                     {/* SEPARADOR 3 */}
                     <div className="h-px bg-[#E8E8E8] dark:bg-[#2A2A2A] my-2" />
@@ -405,7 +389,6 @@ export function Layout() {
       )}
 
       {/* Report Modal */}
-      <ReportModal open={reportModalOpen} onOpenChange={setReportModalOpen} />
     </div>
   );
 }

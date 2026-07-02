@@ -5,9 +5,6 @@ import { Socorro } from "./pages/Socorro";
 import { Dashboard } from "./pages/Dashboard";
 import { Deadlines } from "./pages/Deadlines";
 import { Calendar } from "./pages/Calendar";
-import { ExecutiveReport } from "./pages/ExecutiveReport";
-import { ShareReport } from "./pages/ShareReport";
-import { ReportSuccess } from "./pages/ReportSuccess";
 import { Configuracoes } from "./pages/Configuracoes";
 import { FocusClock } from "./pages/FocusClock";
 import { Auth } from "./pages/Auth";
@@ -64,9 +61,7 @@ export const router = createBrowserRouter([
           { path: "calendario", Component: Calendar },
           { path: "configuracoes", Component: Configuracoes },
           { path: "focus-clock", Component: FocusClock },
-          { path: "relatorio-anual", Component: ExecutiveReport },
-          { path: "relatorio-compartilhar", Component: ShareReport },
-          { path: "relatorio-sucesso", Component: ReportSuccess },
+
           { path: "faq-teoria", Component: FAQTeoria },
           { path: "licenca", Component: License },
         ],

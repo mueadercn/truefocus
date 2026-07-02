@@ -220,15 +220,14 @@ export function Calendar() {
               <button
                 key={dayData.dayNumber}
                 onClick={() => handleSelectDay(dayData)}
-                disabled={dayData.isPast}
                 className={`
                   relative h-10 rounded-lg text-sm font-medium transition-all duration-200
                   ${dayData.isToday
                     ? 'bg-[#8B7355] dark:bg-[#A89580] text-white border-2 border-[#8B7355] dark:border-[#A89580]'
-                    : dayData.isPast
-                    ? 'bg-[#FAFAF8] dark:bg-[#0A0A0A] text-[#BDBDBD] dark:text-[#4A4A4A] cursor-not-allowed'
                     : isSelected
                     ? 'bg-[#F5EDE7] dark:bg-[#2A2520] border-2 border-[#8B7355] dark:border-[#A89580] text-[#1A1A1A] dark:text-[#F5F5F5]'
+                    : dayData.isPast
+                    ? 'bg-[#FAFAF8] dark:bg-[#0A0A0A] text-[#BDBDBD] dark:text-[#4A4A4A] hover:bg-[#F0EDE8] dark:hover:bg-[#1A1A1A] hover:text-[#8B7355] dark:hover:text-[#A89580] hover:scale-105'
                     : 'bg-[#FFFFFF] dark:bg-[#151515] text-[#1A1A1A] dark:text-[#F5F5F5] border border-[#E8E8E8] dark:border-[#2A2A2A] hover:bg-[#FAFAF8] dark:hover:bg-[#2A2A2A]/50 hover:scale-105'
                   }
                 `}
@@ -236,7 +235,7 @@ export function Calendar() {
                 {dayData.dayNumber}
 
                 {/* Indicadores */}
-                {!dayData.isPast && (hasTasks || hasDeadlines) && (
+                {(hasTasks || hasDeadlines) && (
                   <div className="absolute bottom-0.5 right-0.5 flex gap-0.5">
                     {hasTasks && (
                       <span className="w-1.5 h-1.5 rounded-full bg-[#4CAF50]" />
