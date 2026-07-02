@@ -35,3 +35,6 @@ Thumbs.db
 
 # Supabase local
 .supabase/
+
+# Documento de estratégia/branding — só local, não versionar (repo é público)
+TrueFocus Settings.txt
