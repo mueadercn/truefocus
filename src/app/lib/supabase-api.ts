@@ -205,6 +205,14 @@ export const settingsApi = {
 
       const language = settings.language || 'en';
 
+      // Persistir o idioma no metadata do usuário (é de onde o get() lê no próximo load).
+      // Sem isto, o idioma volta ao padrão ao recarregar o app.
+      try {
+        await supabase.auth.updateUser({ data: { language } });
+      } catch (langErr) {
+        console.warn('Não foi possível persistir o idioma no metadata:', langErr);
+      }
+
       // Check if settings exist first
       console.log('🔍 Checking if settings exist for user:', user.id);
       const { data: existing, error: checkError } = await supabase

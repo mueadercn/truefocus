@@ -82,8 +82,8 @@ export function NotesModal({
     }
 
     const recognition = new SpeechRecognition();
-    // Fixado em pt-BR (igual ao Voice Tasks): reconhece português e também inglês
-    recognition.lang = 'pt-BR';
+    // Segue o idioma do app: pt-BR quando em português, en-US quando em inglês
+    recognition.lang = language === 'pt' ? 'pt-BR' : 'en-US';
     recognition.continuous = true;
     recognition.interimResults = false;
 

@@ -414,7 +414,8 @@ export function Home() {
     }
 
     const recognition = new SpeechRecognition();
-    recognition.lang = 'pt-BR'; // Português do Brasil
+    // Segue o idioma do app: pt-BR quando em português, en-US quando em inglês
+    recognition.lang = settings.language === 'pt' ? 'pt-BR' : 'en-US';
     recognition.continuous = false;
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
