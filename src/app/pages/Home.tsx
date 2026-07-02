@@ -10,10 +10,15 @@ import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { TouchBackend } from 'react-dnd-touch-backend';
 import { DraggableTask } from '../components/DraggableTask';
-import { 
-  Play, 
-  Check, 
-  Plus, 
+import { NotesModal } from '../components/NotesModal';
+import { VoiceScheduleModal } from '../components/VoiceScheduleModal';
+import {
+  Play,
+  Check,
+  Plus,
+  PenLine,
+  CalendarPlus,
+  ListChecks,
   ChevronLeft, 
   ChevronRight, 
   Trash2, 
@@ -54,7 +59,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Checkbox } from '../components/ui/checkbox';
 
 export function Home() {
-  const { tasks, deadlines, selectedDate, setSelectedDate, addTask, updateTask, completeTask, deleteTask, loading, settings } = useApp();
+  const { tasks, deadlines, selectedDate, setSelectedDate, addTask, updateTask, completeTask, deleteTask, addNote, loading, settings } = useApp();
   const navigate = useNavigate();
   const [showNewTaskModal, setShowNewTaskModal] = useState(false);
   const [taskToComplete, setTaskToComplete] = useState<Task | null>(null);
@@ -72,7 +77,12 @@ export function Home() {
   const t = translations[settings.language];
   const dateLocale = settings.language === 'pt' ? ptBR : enUS;
 
+  // Notes modal state
+  const [showNotesModal, setShowNotesModal] = useState(false);
+
   // Voice input state
+  const [showVoiceChoice, setShowVoiceChoice] = useState(false);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showVoiceModal, setShowVoiceModal] = useState(false);
   const [voiceTasks, setVoiceTasks] = useState(['', '', '']);
   const [isListening, setIsListening] = useState(false);
@@ -519,6 +529,17 @@ export function Home() {
             </button>
           </div>
 
+          {/* Botão de Anotações - entre o topo e as tarefas */}
+          <button
+            onClick={() => setShowNotesModal(true)}
+            className="w-full flex items-center gap-2 px-4 py-2.5 bg-[#FFFFFF] dark:bg-[#151515] border border-dashed border-[#E8E8E8] dark:border-[#2A2A2A] rounded-lg hover:border-[#8B7355] dark:hover:border-[#A89580] transition-all duration-200 active:scale-[0.99] group"
+          >
+            <PenLine className="w-4 h-4 text-[#8B7355] dark:text-[#A89580]" />
+            <span className="text-sm text-[#6B6B6B] dark:text-[#A0A0A0] group-hover:text-[#8B7355] dark:group-hover:text-[#A89580] transition-colors">
+              {t.notesButton || 'Anotações do dia'}
+            </span>
+          </button>
+
           {/* Task List */}
           <div className="space-y-3">
             {/* Pending Tasks - Drag and Drop Enabled */}
@@ -604,7 +625,7 @@ export function Home() {
         <div className="fixed left-0 right-0 z-50" style={{ bottom: 'calc(24px + 7rem)' }}>
           <div className="max-w-[800px] mx-auto px-5 flex gap-3">
             <button
-              onClick={() => setShowVoiceModal(true)}
+              onClick={() => setShowVoiceChoice(true)}
               className="bg-[#FFFFFF] dark:bg-[#151515] border border-[#8B7355] dark:border-[#A89580] text-[#8B7355] dark:text-[#A89580] p-4 rounded-xl shadow-lg hover:shadow-xl hover:bg-[#8B7355]/10 dark:hover:bg-[#A89580]/10 transition-all duration-300 active:scale-[0.98] flex items-center justify-center"
             >
               <Mic className="w-5 h-5" />
@@ -622,6 +643,76 @@ export function Home() {
           </div>
         </div>
       )}
+
+      {/* Notes Modal */}
+      <NotesModal
+        open={showNotesModal}
+        onOpenChange={setShowNotesModal}
+        date={selectedDate}
+        displayDate={displayDate}
+        language={settings.language}
+        onSave={(content) => addNote(selectedDate, content)}
+        translations={t}
+      />
+
+      {/* Voice Choice - escolha entre Voice Tasks e Agendar */}
+      <Dialog open={showVoiceChoice} onOpenChange={setShowVoiceChoice}>
+        <DialogContent className="max-w-sm bg-[#FFFFFF] dark:bg-[#151515] border border-[#E8E8E8] dark:border-[#2A2A2A]">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-2xl font-light text-[#1A1A1A] dark:text-[#F5F5F5]">
+              {t.voiceChoiceTitle || 'Adicionar por voz'}
+            </DialogTitle>
+            <DialogDescription className="text-[#6B6B6B] dark:text-[#A0A0A0]">
+              {t.voiceChoiceHint || 'O que você quer fazer?'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-3 mt-2">
+            <button
+              onClick={() => {
+                setShowVoiceChoice(false);
+                setShowVoiceModal(true);
+              }}
+              className="flex flex-col items-center gap-2 p-5 rounded-xl border border-[#E8E8E8] dark:border-[#2A2A2A] hover:border-[#8B7355] dark:hover:border-[#A89580] hover:bg-[#8B7355]/5 transition-all duration-200 active:scale-95"
+            >
+              <ListChecks className="w-7 h-7 text-[#8B7355] dark:text-[#A89580]" />
+              <span className="text-sm font-medium text-[#1A1A1A] dark:text-[#F5F5F5] text-center">
+                {t.voiceTasksTitle || 'Tarefas de Voz'}
+              </span>
+              <span className="text-[10px] text-[#6B6B6B] dark:text-[#A0A0A0] text-center leading-tight">
+                {t.voiceTasksShort || 'Tarefas de hoje'}
+              </span>
+            </button>
+            <button
+              onClick={() => {
+                setShowVoiceChoice(false);
+                setShowScheduleModal(true);
+              }}
+              className="flex flex-col items-center gap-2 p-5 rounded-xl border border-[#E8E8E8] dark:border-[#2A2A2A] hover:border-[#8B7355] dark:hover:border-[#A89580] hover:bg-[#8B7355]/5 transition-all duration-200 active:scale-95"
+            >
+              <CalendarPlus className="w-7 h-7 text-[#8B7355] dark:text-[#A89580]" />
+              <span className="text-sm font-medium text-[#1A1A1A] dark:text-[#F5F5F5] text-center">
+                {t.scheduleByVoice || 'Agendar'}
+              </span>
+              <span className="text-[10px] text-[#6B6B6B] dark:text-[#A0A0A0] text-center leading-tight">
+                {t.scheduleShort || 'Data futura com IA'}
+              </span>
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Voice Schedule Modal (IA) */}
+      <VoiceScheduleModal
+        open={showScheduleModal}
+        onOpenChange={setShowScheduleModal}
+        language={settings.language}
+        currentDate={format(new Date(), 'yyyy-MM-dd')}
+        onConfirm={async ({ title, date, time }) => {
+          const text = time ? `${title} (${time})` : title;
+          await addTask({ text, date, mode: 'livre' });
+        }}
+        translations={t}
+      />
 
       {/* New Task Modal */}
       <Dialog open={showNewTaskModal} onOpenChange={setShowNewTaskModal}>

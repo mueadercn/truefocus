@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
 import { tasksApi, rescuesApi, settingsApi } from '../lib/supabase-api';
+import { notesApi } from '../lib/notes-api';
 import { licenseApi } from '../lib/license-api';
 import { deadlinesApi } from '../lib/deadlines-api';
 import { clearUserCache } from '../lib/auth-helper';
-import type { Task, RescueProtocol, Settings, User, License, AccessStatus, Deadline } from '../types';
+import type { Task, RescueProtocol, Settings, User, License, AccessStatus, Deadline, Note } from '../types';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 
@@ -16,6 +17,7 @@ interface AppContextType {
   tasks: Task[];
   rescues: RescueProtocol[];
   deadlines: Deadline[];
+  notes: Note[];
   settings: Settings;
   license: License | null;
   accessStatus: AccessStatus;
@@ -28,10 +30,13 @@ interface AppContextType {
   deleteTask: (id: string) => Promise<void>;
   completeTask: (id: string) => Promise<void>;
   addRescue: (rescue: Omit<RescueProtocol, 'id' | 'date'>) => Promise<void>;
+  addNote: (date: string, content: string) => Promise<void>;
+  deleteNote: (id: string) => Promise<void>;
   updateSettings: (settings: Settings) => Promise<void>;
   refreshTasks: () => Promise<void>;
   refreshRescues: () => Promise<void>;
   refreshDeadlines: () => Promise<void>;
+  refreshNotes: () => Promise<void>;
   refreshLicense: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, name: string) => Promise<void>;
@@ -65,6 +70,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [rescues, setRescues] = useState<RescueProtocol[]>([]);
   const [deadlines, setDeadlines] = useState<Deadline[]>([]);
+  const [notes, setNotes] = useState<Note[]>([]);
   const [settings, setSettings] = useState<Settings>({
     theme: 'dark',
     notifications: true,
@@ -280,7 +286,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
         console.log('📡 STEP 4: Loading deadlines...');
         const deadlinesData = await deadlinesApi.getAll();
         console.log('✅ STEP 4 DONE: Deadlines loaded:', deadlinesData.length);
-        
+
+        console.log('📡 STEP 4b: Loading notes...');
+        let notesData: Note[] = [];
+        try {
+          notesData = await notesApi.getAll();
+          console.log('✅ STEP 4b DONE: Notes loaded:', notesData.length);
+        } catch (notesError) {
+          // Não bloquear o carregamento se a tabela ainda não existir
+          console.warn('⚠️ Notes not loaded (table may not exist yet):', notesError);
+        }
+
         console.log('📡 STEP 5: Loading license...');
         const licenseData = await licenseApi.get();
         console.log('✅ STEP 5 DONE: License loaded:', licenseData);
@@ -304,7 +320,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           console.log('✅ Deadlines carregadas:', deadlinesData.length);
           setDeadlines(deadlinesData);
         }
-        
+
+        setNotes(notesData);
+
         if (licenseData) {
           console.log('✅ Licença carregada:', licenseData);
           setLicense(licenseData);
@@ -382,6 +400,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
         console.warn('⚠️ Deadlines table not found - please create it in Supabase');
         setDeadlines([]);
       }
+    }
+  };
+
+  const refreshNotes = async () => {
+    try {
+      const notesData = await notesApi.getAll();
+      setNotes(notesData);
+    } catch (error) {
+      console.error('Error refreshing notes:', error);
+    }
+  };
+
+  const addNote = async (date: string, content: string) => {
+    try {
+      const newNote = await notesApi.create({ date, content });
+      setNotes(prev => [newNote, ...prev]);
+      toast.success(settings.language === 'pt' ? 'Anotação salva!' : 'Note saved!');
+    } catch (error) {
+      console.error('Error adding note:', error);
+      toast.error(settings.language === 'pt' ? 'Erro ao salvar anotação' : 'Error saving note');
+      throw error;
+    }
+  };
+
+  const deleteNote = async (id: string) => {
+    try {
+      await notesApi.delete(id);
+      setNotes(prev => prev.filter(n => n.id !== id));
+      toast.success(settings.language === 'pt' ? 'Anotação excluída' : 'Note deleted');
+    } catch (error) {
+      console.error('Error deleting note:', error);
+      toast.error(settings.language === 'pt' ? 'Erro ao excluir' : 'Error deleting note');
+      throw error;
     }
   };
 
@@ -588,6 +639,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setUser(null);
       setTasks([]);
       setRescues([]);
+      setNotes([]);
+      setDeadlines([]);
       setSettings({
         theme: 'dark',
         notifications: true,
@@ -610,6 +663,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     tasks,
     rescues,
     deadlines,
+    notes,
     settings,
     license,
     accessStatus,
@@ -622,10 +676,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     deleteTask,
     completeTask,
     addRescue,
+    addNote,
+    deleteNote,
     updateSettings,
     refreshTasks,
     refreshRescues,
     refreshDeadlines,
+    refreshNotes,
     refreshLicense,
     signIn,
     signUp,

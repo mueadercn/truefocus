@@ -1,4 +1,4 @@
-import { Home, LifeBuoy, BookOpen, BarChart3, Settings, Menu, X, ChevronLeft, ChevronRight, Clock, HelpCircle, CalendarDays, Target } from 'lucide-react';
+import { Home, LifeBuoy, BookOpen, BarChart3, Settings, Menu, X, ChevronLeft, ChevronRight, Clock, HelpCircle, CalendarDays, Target, PenLine } from 'lucide-react';
 import { Outlet, useLocation, useNavigate } from 'react-router';
 import { useState, useEffect, useMemo } from 'react';
 import {
@@ -239,6 +239,20 @@ export function Layout() {
                     >
                       <CalendarDays className="w-5 h-5" />
                       <span className="font-serif text-base font-light">{t.calendar}</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        navigate('/home/anotacoes');
+                        setMenuOpen(false);
+                      }}
+                      className={`flex items-center gap-4 px-4 py-4 rounded-lg text-left transition-all duration-300 ${
+                        isActive('/home/anotacoes')
+                          ? 'bg-[#8B7355] dark:bg-[#A89580] text-white'
+                          : 'hover:bg-[#FAFAF8] dark:hover:bg-[#2A2A2A]/50 text-[#1A1A1A] dark:text-[#F5F5F5]'
+                      }`}
+                    >
+                      <PenLine className="w-5 h-5" />
+                      <span className="font-serif text-base font-light">{t.notesTitle || 'Anotações'}</span>
                     </button>
                     <button
                       onClick={() => {

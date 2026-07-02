@@ -80,6 +80,21 @@ export interface AccessStatus {
   licenseType: LicenseType;
 }
 
+export interface ParsedVoiceTask {
+  title: string;
+  date: string; // YYYY-MM-DD
+  time?: string | null; // HH:mm ou null
+}
+
+export interface Note {
+  id: string;
+  user_id: string;
+  date: string; // YYYY-MM-DD do dia da anotação
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Deadline {
   id: string;
   user_id: string;

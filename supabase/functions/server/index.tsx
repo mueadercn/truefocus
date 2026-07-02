@@ -347,6 +347,93 @@ async function getAuthenticatedUser(authHeader: string | null, customTokenHeader
   }
 }
 
+// ========================================
+// AI ENDPOINTS
+// ========================================
+
+// Parse voice transcript into a scheduled task (title + date + time) using GPT-4o-mini
+app.post("/make-server-41f917a5/ai/parse-voice-task", async (c) => {
+  try {
+    // Require an authenticated user (protects the OpenAI key from anonymous abuse)
+    const authHeader = c.req.header('Authorization');
+    const { user, error: authError } = await getAuthenticatedUser(authHeader);
+    if (authError || !user) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const { transcript, currentDate } = await c.req.json();
+    if (!transcript || typeof transcript !== 'string') {
+      return c.json({ error: 'transcript is required' }, 400);
+    }
+
+    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+    if (!OPENAI_API_KEY) {
+      return c.json({ error: 'OpenAI not configured (missing OPENAI_API_KEY)' }, 500);
+    }
+
+    const today = currentDate || new Date().toISOString().split('T')[0];
+
+    const userPrompt =
+      `Hoje é ${today}. O usuário disse: "${transcript}"\n` +
+      `Extraia: o título do compromisso/tarefa e a data exata (YYYY-MM-DD) e a hora (HH:mm, opcional).\n` +
+      `Se o usuário não disser o ano, use o ano da data de hoje. Se não disser hora, use null.\n` +
+      `Responda APENAS em JSON: {"title": "...", "date": "YYYY-MM-DD", "time": "HH:mm ou null"}\n` +
+      `Não inclua categoria — isso não é relevante para agendamento.`;
+
+    const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Você é um assistente que extrai informações de agendamento de compromissos. Responda sempre e apenas com JSON válido, sem texto adicional.',
+          },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.1,
+        response_format: { type: 'json_object' },
+      }),
+    });
+
+    const openaiData = await openaiResponse.json();
+    if (openaiData.error) {
+      console.error('OpenAI error:', openaiData.error);
+      return c.json({ error: openaiData.error.message || 'OpenAI request failed' }, 500);
+    }
+
+    const rawContent = openaiData.choices?.[0]?.message?.content;
+    if (!rawContent) {
+      return c.json({ error: 'Empty response from AI' }, 500);
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(rawContent);
+    } catch (parseError) {
+      console.error('Failed to parse AI JSON:', rawContent);
+      return c.json({ error: 'AI returned invalid JSON' }, 500);
+    }
+
+    // Normalizar campos
+    const result = {
+      title: String(parsed.title || '').trim(),
+      date: String(parsed.date || today).trim(),
+      time: parsed.time && parsed.time !== 'null' ? String(parsed.time).trim() : null,
+    };
+
+    return c.json({ result });
+  } catch (error) {
+    console.error('parse-voice-task error:', error);
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
 // Signup endpoint
 app.post("/make-server-41f917a5/signup", async (c) => {
   try {
