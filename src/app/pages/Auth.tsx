@@ -4,6 +4,15 @@ import { useApp } from '../context/AppContext';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Button } from '../components/ui/button';
+import { Fingerprint } from 'lucide-react';
+import {
+  isBiometricSupported,
+  isBiometricEnabled,
+  isPlatformAuthenticatorAvailable,
+  getBiometricEmail,
+  registerBiometric,
+  authenticateWithBiometric,
+} from '../lib/biometric';
 
 export function Auth() {
   const navigate = useNavigate();
@@ -16,9 +25,14 @@ export function Auth() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Redirect if already authenticated
+  // Biometria
+  const [bioEnabled, setBioEnabled] = useState(false);
+  const [bioLoading, setBioLoading] = useState(false);
+  const [enrollOpen, setEnrollOpen] = useState(false); // prompt pós-login para ativar biometria
+
+  // Redirect if already authenticated (não redireciona enquanto o prompt de biometria está aberto)
   useEffect(() => {
-    if (user) {
+    if (user && !enrollOpen) {
       // Check if there's a pending plan from the license page
       const pendingPlan = localStorage.getItem('pendingPlan');
       if (pendingPlan) {
@@ -28,7 +42,57 @@ export function Auth() {
         navigate('/home');
       }
     }
-  }, [user, navigate]);
+  }, [user, navigate, enrollOpen]);
+
+  // Detecta biometria disponível/registrada
+  useEffect(() => {
+    if (isBiometricSupported() && isBiometricEnabled()) {
+      setBioEnabled(true);
+      const bioEmail = getBiometricEmail();
+      if (bioEmail) setEmail(bioEmail);
+    }
+  }, []);
+
+  const goAfterLogin = () => {
+    const pendingPlan = localStorage.getItem('pendingPlan');
+    if (pendingPlan) {
+      localStorage.removeItem('pendingPlan');
+      navigate(`/home/licenca?plan=${pendingPlan}`);
+    } else {
+      navigate('/home');
+    }
+  };
+
+  const handleBiometricLogin = async () => {
+    setError('');
+    setBioLoading(true);
+    try {
+      const ok = await authenticateWithBiometric();
+      if (ok) {
+        goAfterLogin();
+      } else {
+        setError('Biometric sign-in failed. Please use your password.');
+      }
+    } catch (err: any) {
+      console.error('Biometric login error:', err);
+      setError('Biometric sign-in failed. Please use your password.');
+    } finally {
+      setBioLoading(false);
+    }
+  };
+
+  const handleEnrollBiometric = async () => {
+    setBioLoading(true);
+    try {
+      await registerBiometric(email);
+    } catch (err) {
+      console.error('Biometric enrollment error:', err);
+    } finally {
+      setBioLoading(false);
+      setEnrollOpen(false);
+      goAfterLogin();
+    }
+  };
 
   // Load saved credentials
   useEffect(() => {
@@ -61,14 +125,17 @@ export function Auth() {
         localStorage.removeItem('truefocus_password');
       }
 
-      // Check if there's a pending plan from the license page
-      const pendingPlan = localStorage.getItem('pendingPlan');
-      if (pendingPlan) {
-        localStorage.removeItem('pendingPlan');
-        navigate(`/home/licenca?plan=${pendingPlan}`);
-      } else {
-        navigate('/home');
+      // Oferece ativar biometria se o aparelho suportar e ainda não estiver ativa
+      if (
+        isBiometricSupported() &&
+        !isBiometricEnabled() &&
+        (await isPlatformAuthenticatorAvailable())
+      ) {
+        setEnrollOpen(true); // o redirect fica suspenso até o usuário decidir
+        return;
       }
+
+      goAfterLogin();
     } catch (err: any) {
       setError(err.message || 'Authentication error. Please try again.');
     } finally {
@@ -211,6 +278,23 @@ export function Auth() {
                 'Create Account'
               )}
             </Button>
+
+            {/* Biometric Sign In (only signin mode when enabled) */}
+            {mode === 'signin' && bioEnabled && (
+              <button
+                type="button"
+                onClick={handleBiometricLogin}
+                disabled={bioLoading}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-lg border border-[#8B7355] dark:border-[#A89580] text-[#8B7355] dark:text-[#A89580] hover:bg-[#8B7355]/10 transition-all duration-300 active:scale-[0.98] disabled:opacity-50"
+              >
+                {bioLoading ? (
+                  <div className="w-4 h-4 border-2 border-[#8B7355] border-t-transparent rounded-full animate-spin"></div>
+                ) : (
+                  <Fingerprint className="w-5 h-5" />
+                )}
+                <span className="text-sm font-semibold">Sign in with biometrics</span>
+              </button>
+            )}
           </form>
 
           {/* Info */}
@@ -223,6 +307,48 @@ export function Auth() {
           </div>
         </div>
       </div>
+
+      {/* Prompt: ativar biometria após o login */}
+      {enrollOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-5">
+          <div className="w-full max-w-sm bg-[#FFFFFF] dark:bg-[#151515] rounded-2xl p-6 border border-[#E8E8E8] dark:border-[#2A2A2A] shadow-xl text-center">
+            <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-[#8B7355]/10 flex items-center justify-center">
+              <Fingerprint className="w-7 h-7 text-[#8B7355] dark:text-[#A89580]" />
+            </div>
+            <h3 className="font-serif text-xl font-light text-[#1A1A1A] dark:text-[#F5F5F5] mb-2">
+              Enable biometric login?
+            </h3>
+            <p className="text-sm text-[#6B6B6B] dark:text-[#A0A0A0] mb-6 leading-relaxed">
+              Sign in faster next time using your fingerprint or Face ID — no password needed.
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setEnrollOpen(false);
+                  goAfterLogin();
+                }}
+                disabled={bioLoading}
+                className="flex-1 py-3 rounded-lg border border-[#E8E8E8] dark:border-[#2A2A2A] text-[#6B6B6B] dark:text-[#A0A0A0] hover:bg-[#FAFAF8] dark:hover:bg-[#0A0A0A] transition-all duration-200"
+              >
+                Not now
+              </button>
+              <button
+                type="button"
+                onClick={handleEnrollBiometric}
+                disabled={bioLoading}
+                className="flex-1 py-3 rounded-lg bg-[#8B7355] dark:bg-[#A89580] text-white hover:bg-[#6D5A43] dark:hover:bg-[#C4B5A0] transition-all duration-200 flex items-center justify-center gap-2"
+              >
+                {bioLoading ? (
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                ) : (
+                  'Enable'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
