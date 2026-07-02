@@ -5,9 +5,40 @@ import { notesApi } from '../lib/notes-api';
 import { licenseApi } from '../lib/license-api';
 import { deadlinesApi } from '../lib/deadlines-api';
 import { clearUserCache } from '../lib/auth-helper';
+import {
+  cacheReplaceAll,
+  cachePut,
+  cacheDelete,
+  cacheGetAll,
+  cacheSetSettings,
+  cacheGetSettings,
+  enqueueOp,
+  clearOfflineData,
+} from '../lib/offline-db';
+import {
+  initSyncManager,
+  subscribeSync,
+  flushQueue,
+  markFullSync,
+  refreshSyncStatus,
+  isOnline,
+  type SyncStatus,
+} from '../lib/sync-manager';
 import type { Task, RescueProtocol, Settings, User, License, AccessStatus, Deadline, Note } from '../types';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
+
+// Gera um id local (UUID) para criações offline; a mesma id é usada ao sincronizar
+function genLocalId(): string {
+  try {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+      return (crypto as any).randomUUID();
+    }
+  } catch {
+    /* noop */
+  }
+  return `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 // Debounce helper for settings updates
 let settingsUpdateTimeout: NodeJS.Timeout | null = null;
@@ -23,6 +54,8 @@ interface AppContextType {
   accessStatus: AccessStatus;
   selectedDate: string;
   loading: boolean;
+  syncStatus: SyncStatus;
+  manualSync: () => Promise<void>;
   setSelectedDate: (date: string) => void;
   resetToToday: () => void;
   addTask: (task: Omit<Task, 'id' | 'completed' | 'completed_at' | 'created_at'>) => Promise<void>;
@@ -87,6 +120,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   });
   const [selectedDate, setSelectedDate] = useState<string>(formatDate(new Date()));
   const [loading, setLoading] = useState(true);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>({
+    online: isOnline(),
+    lastSync: null,
+    pending: 0,
+    syncing: false,
+  });
 
   // CRITICAL FIX: Prevent multiple simultaneous auth checks (prevents lock errors)
   const isCheckingSession = React.useRef(false);
@@ -266,82 +305,89 @@ export function AppProvider({ children }: { children: ReactNode }) {
       try {
         console.log('🔄 Iniciando carregamento de dados...');
         setLoading(true);
-        
-        // REMOVED: Don't call getSession() again here - it causes lock conflicts
-        // The session was already checked in the first useEffect
-        // We can trust that if user is set, the session is valid
-        
-        console.log('📡 STEP 1: Loading tasks...');
-        const tasksData = await tasksApi.getAll();
-        console.log('✅ STEP 1 DONE: Tasks loaded:', tasksData.length);
-        
-        console.log('📡 STEP 2: Loading rescues...');
-        const rescuesData = await rescuesApi.getAll();
-        console.log('✅ STEP 2 DONE: Rescues loaded:', rescuesData.length);
-        
-        console.log('📡 STEP 3: Loading settings...');
-        const settingsData = await settingsApi.get();
-        console.log('✅ STEP 3 DONE: Settings loaded:', settingsData);
-        
-        console.log('📡 STEP 4: Loading deadlines...');
-        const deadlinesData = await deadlinesApi.getAll();
-        console.log('✅ STEP 4 DONE: Deadlines loaded:', deadlinesData.length);
 
-        console.log('📡 STEP 4b: Loading notes...');
-        let notesData: Note[] = [];
+        // Carrega cada entidade de forma resiliente: se a rede falhar (offline),
+        // usa a cópia local do IndexedDB. Se tiver rede, atualiza a cópia local.
+        let allOnline = true;
+
+        // Tasks
         try {
-          notesData = await notesApi.getAll();
-          console.log('✅ STEP 4b DONE: Notes loaded:', notesData.length);
-        } catch (notesError) {
-          // Não bloquear o carregamento se a tabela ainda não existir
-          console.warn('⚠️ Notes not loaded (table may not exist yet):', notesError);
-        }
-
-        console.log('📡 STEP 5: Loading license...');
-        const licenseData = await licenseApi.get();
-        console.log('✅ STEP 5 DONE: License loaded:', licenseData);
-        
-        if (tasksData) {
-          console.log('✅ Tarefas carregadas:', tasksData.length);
+          const tasksData = await tasksApi.getAll();
           setTasks(tasksData);
+          await cacheReplaceAll('tasks', tasksData);
+        } catch (e) {
+          allOnline = false;
+          console.warn('⚠️ Tasks offline - usando cache local', e);
+          setTasks(await cacheGetAll<Task>('tasks'));
         }
-        
-        if (rescuesData) {
-          console.log('✅ Resgates carregados:', rescuesData.length);
+
+        // Rescues
+        try {
+          const rescuesData = await rescuesApi.getAll();
           setRescues(rescuesData);
+          await cacheReplaceAll('rescues', rescuesData);
+        } catch (e) {
+          allOnline = false;
+          console.warn('⚠️ Rescues offline - usando cache local', e);
+          setRescues(await cacheGetAll<RescueProtocol>('rescues'));
         }
-        
-        if (settingsData) {
-          console.log('✅ Configurações carregadas');
-          setSettings(settingsData);
-        }
-        
-        if (deadlinesData) {
-          console.log('✅ Deadlines carregadas:', deadlinesData.length);
+
+        // Deadlines
+        try {
+          const deadlinesData = await deadlinesApi.getAll();
           setDeadlines(deadlinesData);
+          await cacheReplaceAll('deadlines', deadlinesData);
+        } catch (e) {
+          allOnline = false;
+          console.warn('⚠️ Deadlines offline - usando cache local', e);
+          setDeadlines(await cacheGetAll<Deadline>('deadlines'));
         }
 
-        setNotes(notesData);
-
-        if (licenseData) {
-          console.log('✅ Licença carregada:', licenseData);
-          setLicense(licenseData);
-          // Calculate and set access status
-          const status = licenseApi.checkAccess(licenseData);
-          console.log('✅ Status de acesso calculado:', status);
-          setAccessStatus(status);
-        } else {
-          // No license found - set default status
-          console.log('⚠️ Nenhuma licença encontrada');
-          setLicense(null);
-          const defaultStatus = licenseApi.checkAccess(null);
-          setAccessStatus(defaultStatus);
+        // Notes
+        try {
+          const notesData = await notesApi.getAll();
+          setNotes(notesData);
+          await cacheReplaceAll('notes', notesData);
+        } catch (e) {
+          console.warn('⚠️ Notes offline/indisponível - usando cache local', e);
+          setNotes(await cacheGetAll<Note>('notes'));
         }
-        
-        console.log('✅ Dados carregados com sucesso!');
+
+        // Settings
+        try {
+          const settingsData = await settingsApi.get();
+          if (settingsData) {
+            setSettings(settingsData);
+            await cacheSetSettings(settingsData);
+          }
+        } catch (e) {
+          const cachedSettings = await cacheGetSettings<Settings>();
+          if (cachedSettings) setSettings(cachedSettings);
+        }
+
+        // License (somente online; offline mantém acesso permissivo já definido)
+        try {
+          const licenseData = await licenseApi.get();
+          if (licenseData) {
+            setLicense(licenseData);
+            setAccessStatus(licenseApi.checkAccess(licenseData));
+          } else {
+            setLicense(null);
+            setAccessStatus(licenseApi.checkAccess(null));
+          }
+        } catch (e) {
+          console.warn('⚠️ Licença offline - mantendo acesso atual', e);
+        }
+
+        // Se estamos online, tenta esvaziar a fila de mudanças offline e marca sync
+        if (isOnline() && allOnline) {
+          await flushQueue();
+          await markFullSync();
+        }
+
+        console.log('✅ Dados carregados (online:', allOnline, ')');
       } catch (error) {
         console.error('💥 ERRO NO CARREGAMENTO:', error);
-        toast.error('Error loading data');
       } finally {
         console.log('🏁 FINALIZANDO LOADING...');
         setLoading(false);
@@ -370,6 +416,56 @@ export function AppProvider({ children }: { children: ReactNode }) {
       clearInterval(interval);
     };
   }, [user]);
+
+  // 🌐 SYNC MANAGER - detecta online/offline e sincroniza a fila automaticamente
+  useEffect(() => {
+    if (!user) return;
+
+    const unsubscribe = subscribeSync((status) => setSyncStatus(status));
+    const cleanup = initSyncManager(() => {
+      // Ao reconectar e sincronizar, recarrega os dados frescos do servidor
+      refreshAllFromServer();
+    });
+
+    return () => {
+      unsubscribe();
+      cleanup();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  // Recarrega todas as entidades do servidor e atualiza o cache local
+  const refreshAllFromServer = async () => {
+    try {
+      const [tasksData, rescuesData, deadlinesData] = await Promise.all([
+        tasksApi.getAll().catch(() => null),
+        rescuesApi.getAll().catch(() => null),
+        deadlinesApi.getAll().catch(() => null),
+      ]);
+      if (tasksData) { setTasks(tasksData); await cacheReplaceAll('tasks', tasksData); }
+      if (rescuesData) { setRescues(rescuesData); await cacheReplaceAll('rescues', rescuesData); }
+      if (deadlinesData) { setDeadlines(deadlinesData); await cacheReplaceAll('deadlines', deadlinesData); }
+      try {
+        const notesData = await notesApi.getAll();
+        setNotes(notesData);
+        await cacheReplaceAll('notes', notesData);
+      } catch { /* notes opcional */ }
+      await markFullSync();
+    } catch (error) {
+      console.error('Error refreshing from server:', error);
+    }
+  };
+
+  // Sincronização manual (botão de refresh no menu)
+  const manualSync = async () => {
+    if (!isOnline()) {
+      toast.error(settings.language === 'pt' ? 'Sem conexão no momento' : 'No connection right now');
+      return;
+    }
+    await flushQueue();
+    await refreshAllFromServer();
+    toast.success(settings.language === 'pt' ? 'Sincronizado!' : 'Synced!');
+  };
 
   const refreshTasks = async () => {
     try {
@@ -413,26 +509,56 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const addNote = async (date: string, content: string) => {
+    const pt = settings.language === 'pt';
+    // Offline: cria localmente e enfileira para sincronizar depois
+    if (!isOnline()) {
+      const nowIso = new Date().toISOString();
+      const optimistic: Note = {
+        id: genLocalId(),
+        user_id: user?.id || '',
+        date,
+        content,
+        created_at: nowIso,
+        updated_at: nowIso,
+      };
+      setNotes(prev => [optimistic, ...prev]);
+      await cachePut('notes', optimistic);
+      await enqueueOp({ table: 'notes', action: 'insert', payload: optimistic });
+      await refreshSyncStatus();
+      toast.success(pt ? 'Anotação salva (offline)' : 'Note saved (offline)');
+      return;
+    }
     try {
       const newNote = await notesApi.create({ date, content });
       setNotes(prev => [newNote, ...prev]);
-      toast.success(settings.language === 'pt' ? 'Anotação salva!' : 'Note saved!');
+      await cachePut('notes', newNote);
+      toast.success(pt ? 'Anotação salva!' : 'Note saved!');
     } catch (error) {
       console.error('Error adding note:', error);
-      toast.error(settings.language === 'pt' ? 'Erro ao salvar anotação' : 'Error saving note');
+      toast.error(pt ? 'Erro ao salvar anotação' : 'Error saving note');
       throw error;
     }
   };
 
   const deleteNote = async (id: string) => {
+    const pt = settings.language === 'pt';
+    // Otimista: remove da UI e do cache imediatamente
+    setNotes(prev => prev.filter(n => n.id !== id));
+    await cacheDelete('notes', id);
+    if (!isOnline()) {
+      await enqueueOp({ table: 'notes', action: 'delete', payload: { id } });
+      await refreshSyncStatus();
+      toast.success(pt ? 'Anotação excluída (offline)' : 'Note deleted (offline)');
+      return;
+    }
     try {
       await notesApi.delete(id);
-      setNotes(prev => prev.filter(n => n.id !== id));
-      toast.success(settings.language === 'pt' ? 'Anotação excluída' : 'Note deleted');
+      toast.success(pt ? 'Anotação excluída' : 'Note deleted');
     } catch (error) {
       console.error('Error deleting note:', error);
-      toast.error(settings.language === 'pt' ? 'Erro ao excluir' : 'Error deleting note');
-      throw error;
+      // Enfileira para tentar novamente quando reconectar
+      await enqueueOp({ table: 'notes', action: 'delete', payload: { id } });
+      await refreshSyncStatus();
     }
   };
 
@@ -457,43 +583,89 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const addTask = async (task: Omit<Task, 'id' | 'completed' | 'completed_at' | 'created_at'>) => {
+    const pt = settings.language === 'pt';
+    const nowIso = new Date().toISOString();
+    const optimistic: Task = {
+      id: genLocalId(),
+      text: task.text,
+      category: task.category,
+      duration_min: task.duration_min,
+      date: task.date,
+      mode: task.mode,
+      completed: false,
+      completed_at: null,
+      created_at: nowIso,
+    };
+
+    // Offline: cria localmente e enfileira
+    if (!isOnline()) {
+      setTasks(prev => [...prev, optimistic]);
+      await cachePut('tasks', optimistic);
+      await enqueueOp({
+        table: 'tasks',
+        action: 'insert',
+        payload: { ...optimistic, user_id: user?.id },
+      });
+      await refreshSyncStatus();
+      toast.success(pt ? 'Tarefa salva (offline)' : 'Task saved (offline)');
+      return;
+    }
+
     try {
-      console.log('📝 Criando tarefa:', task);
       const newTask = await tasksApi.create(task);
-      console.log('✅ Tarefa criada com sucesso:', newTask);
       setTasks(prev => [...prev, newTask]);
+      await cachePut('tasks', newTask);
       toast.success('Task created successfully!');
     } catch (error) {
       console.error('❌ Error adding task:', error);
-      if (error instanceof Error) {
-        console.error('Error message:', error.message);
-        console.error('Error stack:', error.stack);
-      }
       toast.error('Error creating task');
       throw error;
     }
   };
 
   const updateTask = async (id: string, updates: Partial<Task>) => {
+    const existing = tasks.find(t => t.id === id);
+    const merged = existing ? { ...existing, ...updates } : null;
+
+    // Otimista: aplica na UI e no cache
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
+    if (merged) await cachePut('tasks', merged);
+
+    if (!isOnline()) {
+      await enqueueOp({ table: 'tasks', action: 'update', payload: { id, updates } });
+      await refreshSyncStatus();
+      return;
+    }
     try {
       const updatedTask = await tasksApi.update(id, updates);
       setTasks(prev => prev.map(t => t.id === id ? updatedTask : t));
+      await cachePut('tasks', updatedTask);
     } catch (error) {
       console.error('Error updating task:', error);
-      toast.error('Error updating task');
-      throw error;
+      await enqueueOp({ table: 'tasks', action: 'update', payload: { id, updates } });
+      await refreshSyncStatus();
     }
   };
 
   const deleteTask = async (id: string) => {
+    const pt = settings.language === 'pt';
+    // Otimista
+    setTasks(prev => prev.filter(t => t.id !== id));
+    await cacheDelete('tasks', id);
+
+    if (!isOnline()) {
+      await enqueueOp({ table: 'tasks', action: 'delete', payload: { id } });
+      await refreshSyncStatus();
+      toast.success(pt ? 'Tarefa excluída (offline)' : 'Task deleted (offline)');
+      return;
+    }
     try {
       await tasksApi.delete(id);
-      setTasks(prev => prev.filter(t => t.id !== id));
       toast.success('Task deleted');
     } catch (error) {
       console.error('Error deleting task:', error);
-      toast.error('Error deleting task');
-      throw error;
+      await enqueueOp({ table: 'tasks', action: 'delete', payload: { id } });
+      await refreshSyncStatus();
     }
   };
 
@@ -504,12 +676,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       // Usar formatDate para garantir horário local correto (YYYY-MM-DD)
       const today = formatDate(new Date());
-      
-      const updatedTask = await tasksApi.update(id, {
+      const updates = {
         completed: true,
-        completed_at: `${today}T${new Date().toLocaleTimeString('pt-BR', { hour12: false })}`
-      });
-      setTasks(prev => prev.map(t => t.id === id ? updatedTask : t));
+        completed_at: `${today}T${new Date().toLocaleTimeString('pt-BR', { hour12: false })}`,
+      };
+
+      // Otimista: marca como concluída na UI e no cache imediatamente
+      const merged = { ...task, ...updates };
+      setTasks(prev => prev.map(t => t.id === id ? merged : t));
+      await cachePut('tasks', merged);
+
+      if (!isOnline()) {
+        await enqueueOp({ table: 'tasks', action: 'update', payload: { id, updates } });
+        await refreshSyncStatus();
+      } else {
+        try {
+          const updatedTask = await tasksApi.update(id, updates);
+          setTasks(prev => prev.map(t => t.id === id ? updatedTask : t));
+          await cachePut('tasks', updatedTask);
+        } catch (error) {
+          console.error('Error completing task online, queuing:', error);
+          await enqueueOp({ table: 'tasks', action: 'update', payload: { id, updates } });
+          await refreshSyncStatus();
+        }
+      }
 
       // Play sound if enabled
       if (settings.sound) {
@@ -641,6 +831,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setRescues([]);
       setNotes([]);
       setDeadlines([]);
+      await clearOfflineData();
       setSettings({
         theme: 'dark',
         notifications: true,
@@ -669,6 +860,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     accessStatus,
     selectedDate,
     loading,
+    syncStatus,
+    manualSync,
     setSelectedDate,
     resetToToday,
     addTask,

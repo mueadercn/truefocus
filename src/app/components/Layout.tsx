@@ -1,4 +1,4 @@
-import { Home, LifeBuoy, BookOpen, BarChart3, Settings, Menu, X, ChevronLeft, ChevronRight, Clock, HelpCircle, CalendarDays, Target, PenLine } from 'lucide-react';
+import { Home, LifeBuoy, BookOpen, BarChart3, Settings, Menu, X, ChevronLeft, ChevronRight, Clock, HelpCircle, CalendarDays, Target, PenLine, RefreshCw, CloudOff } from 'lucide-react';
 import { Outlet, useLocation, useNavigate } from 'react-router';
 import { useState, useEffect, useMemo } from 'react';
 import {
@@ -16,10 +16,15 @@ import { translations } from '../utils/translations';
 export function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, settings, selectedDate, setSelectedDate, resetToToday, loading, accessStatus } = useApp();
+  const { user, settings, selectedDate, setSelectedDate, resetToToday, loading, accessStatus, syncStatus, manualSync } = useApp();
   const [menuOpen, setMenuOpen] = useState(false);
   const t = translations[settings.language];
   const dateLocale = settings.language === 'pt' ? ptBR : enUS;
+
+  // Texto de última sincronização
+  const lastSyncText = syncStatus.lastSync
+    ? format(new Date(syncStatus.lastSync), "dd/MM 'às' HH:mm")
+    : (settings.language === 'pt' ? 'nunca' : 'never');
 
   console.log('🎨 Layout rendering with:', {
     user: user?.email,
@@ -221,7 +226,46 @@ export function Layout() {
                         </span>
                       </div>
                     </button>
-                    
+
+                    {/* SYNC STATUS - entre Goals e Calendar */}
+                    <div className="flex items-center justify-between px-4 py-2.5 rounded-lg bg-[#FAFAF8] dark:bg-[#0A0A0A] border border-[#E8E8E8] dark:border-[#2A2A2A]">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {syncStatus.online ? (
+                          <span className="w-2 h-2 rounded-full bg-[#4CAF50] flex-shrink-0" />
+                        ) : (
+                          <CloudOff className="w-4 h-4 text-[#F44336] flex-shrink-0" />
+                        )}
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-[10px] uppercase tracking-wider text-[#6B6B6B] dark:text-[#A0A0A0] leading-tight">
+                            {syncStatus.online
+                              ? (settings.language === 'pt' ? 'Última sincronização' : 'Last sync')
+                              : (settings.language === 'pt' ? 'Offline' : 'Offline')}
+                          </span>
+                          <span className="text-xs text-[#1A1A1A] dark:text-[#F5F5F5] truncate">
+                            {syncStatus.pending > 0
+                              ? (settings.language === 'pt'
+                                  ? `${syncStatus.pending} pendente(s)`
+                                  : `${syncStatus.pending} pending`)
+                              : lastSyncText}
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => manualSync()}
+                        disabled={syncStatus.syncing || !syncStatus.online}
+                        className={`p-2 rounded-lg transition-all duration-200 flex-shrink-0 ${
+                          syncStatus.syncing || !syncStatus.online
+                            ? 'opacity-40 cursor-not-allowed'
+                            : 'hover:bg-[#8B7355]/10 active:scale-90'
+                        }`}
+                        title={settings.language === 'pt' ? 'Sincronizar agora' : 'Sync now'}
+                      >
+                        <RefreshCw
+                          className={`w-4 h-4 text-[#8B7355] dark:text-[#A89580] ${syncStatus.syncing ? 'animate-spin' : ''}`}
+                        />
+                      </button>
+                    </div>
+
                     {/* SEPARADOR 1 */}
                     <div className="h-px bg-[#E8E8E8] dark:bg-[#2A2A2A] my-2" />
                     
