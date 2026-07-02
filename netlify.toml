@@ -1,0 +1,12 @@
+# Configuração do deploy no Netlify
+
+[build]
+  # Netlify roda isto sozinho ao conectar o repositório do GitHub
+  command = "npm run build"
+  publish = "dist"
+
+# Redirect de SPA: qualquer rota cai no index.html (senão dar F5 em /home dá 404)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
