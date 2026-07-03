@@ -50,14 +50,12 @@ export function Layout() {
     }
   }, [user, loading, navigate]);
 
-  // Block access if license expired - redirect to license page
+  // Block access if license expired - redirect to license page.
+  // Local-first: o accessStatus vem SEMPRE do cache/data da licença (nunca de erro de
+  // rede), então é seguro validar mesmo offline — trial vencido trava online e offline.
   useEffect(() => {
     // Don't check if still loading or no user
     if (loading || !user) return;
-
-    // OFFLINE: nunca travar/redirecionar — o usuário pode estar sem internet com
-    // licença válida em cache. O bloqueio só vale quando estamos online.
-    if (!syncStatus.online) return;
 
     if (!accessStatus.hasAccess) {
       console.log('🔒 Layout: Access denied - redirecting to license page', {
@@ -73,7 +71,7 @@ export function Layout() {
         navigate('/home/licenca', { replace: true });
       }
     }
-  }, [accessStatus.hasAccess, loading, user, location.pathname, navigate, accessStatus.reason, accessStatus.licenseType, syncStatus.online]);
+  }, [accessStatus.hasAccess, loading, user, location.pathname, navigate, accessStatus.reason, accessStatus.licenseType]);
 
   // Apply theme
   useEffect(() => {

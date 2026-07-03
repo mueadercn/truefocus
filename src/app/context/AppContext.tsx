@@ -23,6 +23,8 @@ import {
   flushQueue,
   markFullSync,
   refreshSyncStatus,
+  scheduleFlush,
+  withTimeout,
   isOnline,
   type SyncStatus,
 } from '../lib/sync-manager';
@@ -39,7 +41,12 @@ function genLocalId(): string {
   } catch {
     /* noop */
   }
-  return `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  // Fallback: UUID v4 válido (colunas `uuid` do Postgres aceitam) para WebViews antigas
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
 }
 
 // Debounce helper for settings updates
@@ -65,6 +72,10 @@ interface AppContextType {
   deleteTask: (id: string) => Promise<void>;
   completeTask: (id: string) => Promise<void>;
   addRescue: (rescue: Omit<RescueProtocol, 'id' | 'date'>) => Promise<void>;
+  addDeadline: (input: { title: string; deadline_date: string; notes?: string }) => Promise<void>;
+  updateDeadline: (id: string, updates: { title?: string; deadline_date?: string; notes?: string }) => Promise<void>;
+  completeDeadline: (id: string) => Promise<void>;
+  deleteDeadline: (id: string) => Promise<void>;
   addNote: (date: string, content: string) => Promise<void>;
   deleteNote: (id: string) => Promise<void>;
   updateSettings: (settings: Settings) => Promise<void>;
@@ -188,16 +199,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
             setUser(userData);
           } catch (error) {
             console.error('❌ AppContext: Error loading license data in checkSession:', error);
-            // Set user with trial as fallback
+
+            // Tenta recuperar do cache local antes de falhar
+            const cachedLicense = await cacheGetLicense<License>();
+
             const userData = {
               id: session.user.id,
               email: session.user.email || '',
               name: session.user.user_metadata?.name,
-              license_type: 'trial' as const,
-              trial_ends_at: null,
-              subscription_ends_at: null
+              license_type: cachedLicense?.license_type || ('trial' as const),
+              trial_ends_at: cachedLicense?.trial_ends_at || null,
+              subscription_ends_at: cachedLicense?.subscription_ends_at || null
             };
-            console.log('⚠️ AppContext: Using fallback user data (checkSession):', userData);
+            console.log('⚠️ AppContext: Using cached/fallback user data (checkSession):', userData);
             setUser(userData);
           }
         }
@@ -266,16 +280,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
         } catch (error) {
           console.log('🔍 STEP F: Entrou no CATCH!');
           console.error('❌ AppContext: Error loading license data:', error);
-          // Set user with trial as fallback
+
+          // Tenta recuperar do cache local antes de falhar
+          const cachedLicense = await cacheGetLicense<License>();
+
           const userData = {
             id: session.user.id,
             email: session.user.email || '',
             name: session.user.user_metadata?.name,
-            license_type: 'trial' as const,
-            trial_ends_at: null,
-            subscription_ends_at: null
+            license_type: cachedLicense?.license_type || ('trial' as const),
+            trial_ends_at: cachedLicense?.trial_ends_at || null,
+            subscription_ends_at: cachedLicense?.subscription_ends_at || null
           };
-          console.log('⚠️ AppContext: Using fallback user data:', userData);
+          console.log('⚠️ AppContext: Using cached/fallback user data:', userData);
           setUser(userData);
         }
       } else {
@@ -296,111 +313,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
 
     const loadData = async () => {
-      // Prevent multiple simultaneous data loads
       if (isLoadingData.current) {
         console.log('⏭️ Skipping data load - already in progress');
         return;
       }
-      
       isLoadingData.current = true;
-      
+
       try {
-        console.log('🔄 Iniciando carregamento de dados...');
-        setLoading(true);
-
-        // Carrega cada entidade de forma resiliente: se a rede falhar (offline),
-        // usa a cópia local do IndexedDB. Se tiver rede, atualiza a cópia local.
-        let allOnline = true;
-
-        // Tasks
-        try {
-          const tasksData = await tasksApi.getAll();
-          setTasks(tasksData);
-          await cacheReplaceAll('tasks', tasksData);
-        } catch (e) {
-          allOnline = false;
-          console.warn('⚠️ Tasks offline - usando cache local', e);
-          setTasks(await cacheGetAll<Task>('tasks'));
+        // 1) LOCAL-FIRST: renderiza IMEDIATAMENTE o que está no aparelho (IndexedDB).
+        // Offline ou online, os dados aparecem na hora — nunca esperamos a rede.
+        const [cTasks, cRescues, cDeadlines, cNotes, cSettings, cLicense] = await Promise.all([
+          cacheGetAll<Task>('tasks'),
+          cacheGetAll<RescueProtocol>('rescues'),
+          cacheGetAll<Deadline>('deadlines'),
+          cacheGetAll<Note>('notes'),
+          cacheGetSettings<Settings>(),
+          cacheGetLicense<License>(),
+        ]);
+        if (cTasks.length) setTasks(cTasks);
+        if (cRescues.length) setRescues(cRescues);
+        if (cDeadlines.length) setDeadlines(cDeadlines);
+        if (cNotes.length) setNotes(cNotes);
+        if (cSettings) setSettings(cSettings);
+        if (cLicense) {
+          setLicense(cLicense);
+          setAccessStatus(licenseApi.checkAccess(cLicense)); // acesso pela DATA da licença em cache
         }
+        setLoading(false); // já pode usar o app, mesmo offline
 
-        // Rescues
-        try {
-          const rescuesData = await rescuesApi.getAll();
-          setRescues(rescuesData);
-          await cacheReplaceAll('rescues', rescuesData);
-        } catch (e) {
-          allOnline = false;
-          console.warn('⚠️ Rescues offline - usando cache local', e);
-          setRescues(await cacheGetAll<RescueProtocol>('rescues'));
-        }
+        // 2) BACKGROUND: atualiza do servidor (com timeout). Se responder, atualiza
+        // state + cache (Supabase = backup); se falhar/offline, seguimos no cache local.
+        void refreshAllFromServer();
+        void refreshLicense();
 
-        // Deadlines
-        try {
-          const deadlinesData = await deadlinesApi.getAll();
-          setDeadlines(deadlinesData);
-          await cacheReplaceAll('deadlines', deadlinesData);
-        } catch (e) {
-          allOnline = false;
-          console.warn('⚠️ Deadlines offline - usando cache local', e);
-          setDeadlines(await cacheGetAll<Deadline>('deadlines'));
-        }
-
-        // Notes
-        try {
-          const notesData = await notesApi.getAll();
-          setNotes(notesData);
-          await cacheReplaceAll('notes', notesData);
-        } catch (e) {
-          console.warn('⚠️ Notes offline/indisponível - usando cache local', e);
-          setNotes(await cacheGetAll<Note>('notes'));
-        }
-
-        // Settings
-        try {
-          const settingsData = await settingsApi.get();
-          if (settingsData) {
-            setSettings(settingsData);
-            await cacheSetSettings(settingsData);
-          }
-        } catch (e) {
-          const cachedSettings = await cacheGetSettings<Settings>();
-          if (cachedSettings) setSettings(cachedSettings);
-        }
-
-        // License: online busca do servidor e cacheia; offline usa o cache local
-        try {
-          const licenseData = await licenseApi.get();
-          if (licenseData) {
-            setLicense(licenseData);
-            setAccessStatus(licenseApi.checkAccess(licenseData));
-            await cacheSetLicense(licenseData);
-          } else {
-            setLicense(null);
-            setAccessStatus(licenseApi.checkAccess(null));
-          }
-        } catch (e) {
-          console.warn('⚠️ Licença offline - usando cache local', e);
-          // Offline/erro: recupera a última licença conhecida do cache
-          const cachedLicense = await cacheGetLicense<License>();
-          if (cachedLicense) {
-            setLicense(cachedLicense);
-            setAccessStatus(licenseApi.checkAccess(cachedLicense));
-          }
-          // Sem cache: mantém o accessStatus permissivo inicial (não trava o usuário)
-        }
-
-        // Se estamos online, tenta esvaziar a fila de mudanças offline e marca sync
-        if (isOnline() && allOnline) {
-          await flushQueue();
-          await markFullSync();
-        }
-
-        console.log('✅ Dados carregados (online:', allOnline, ')');
+        // 3) Sobe as mudanças offline pendentes (fila) em segundo plano.
+        scheduleFlush();
       } catch (error) {
-        console.error('💥 ERRO NO CARREGAMENTO:', error);
-      } finally {
-        console.log('🏁 FINALIZANDO LOADING...');
+        console.error('💥 ERRO NO CARREGAMENTO (local-first):', error);
         setLoading(false);
+      } finally {
         isLoadingData.current = false;
       }
     };
@@ -410,21 +361,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => clearTimeout(timer);
   }, [user]);
 
-  // 🔄 AUTO-REFRESH LICENSE - Check every 30 seconds for admin changes
+  // 🔄 AUTO-REFRESH LICENSE - a cada 30s
   useEffect(() => {
     if (!user) return;
 
-    console.log('🔄 Starting license auto-refresh (every 30s)');
-    
     const interval = setInterval(async () => {
-      console.log('🔄 Auto-refreshing license...');
-      await refreshLicense();
-    }, 30000); // 30 seconds
+      // Reavalia o acesso pela DATA da licença em cache — trava o trial vencido mesmo
+      // offline, sem depender da rede.
+      const cached = await cacheGetLicense<License>();
+      if (cached) setAccessStatus(licenseApi.checkAccess(cached));
+      // Tenta atualizar do servidor em segundo plano (nunca rebaixa em erro — ver refreshLicense).
+      void refreshLicense();
+    }, 30000);
 
-    return () => {
-      console.log('🛑 Stopping license auto-refresh');
-      clearInterval(interval);
-    };
+    return () => clearInterval(interval);
   }, [user]);
 
   // 🌐 SYNC MANAGER - detecta online/offline e sincroniza a fila automaticamente
@@ -444,22 +394,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
-  // Recarrega todas as entidades do servidor e atualiza o cache local
+  // Recarrega todas as entidades do servidor (com timeout) e atualiza o cache local.
+  // Nunca lança nem trava — se offline, cada chamada falha e mantemos o cache.
   const refreshAllFromServer = async () => {
     try {
-      const [tasksData, rescuesData, deadlinesData] = await Promise.all([
-        tasksApi.getAll().catch(() => null),
-        rescuesApi.getAll().catch(() => null),
-        deadlinesApi.getAll().catch(() => null),
+      const [tasksData, rescuesData, deadlinesData, notesData] = await Promise.all([
+        withTimeout(tasksApi.getAll(), 8000).catch(() => null),
+        withTimeout(rescuesApi.getAll(), 8000).catch(() => null),
+        withTimeout(deadlinesApi.getAll(), 8000).catch(() => null),
+        withTimeout(notesApi.getAll(), 8000).catch(() => null),
       ]);
       if (tasksData) { setTasks(tasksData); await cacheReplaceAll('tasks', tasksData); }
       if (rescuesData) { setRescues(rescuesData); await cacheReplaceAll('rescues', rescuesData); }
       if (deadlinesData) { setDeadlines(deadlinesData); await cacheReplaceAll('deadlines', deadlinesData); }
+      if (notesData) { setNotes(notesData); await cacheReplaceAll('notes', notesData); }
       try {
-        const notesData = await notesApi.getAll();
-        setNotes(notesData);
-        await cacheReplaceAll('notes', notesData);
-      } catch { /* notes opcional */ }
+        const settingsData = await withTimeout(settingsApi.get(), 8000);
+        if (settingsData) { setSettings(settingsData); await cacheSetSettings(settingsData); }
+      } catch { /* mantém settings do cache */ }
       await markFullSync();
     } catch (error) {
       console.error('Error refreshing from server:', error);
@@ -520,80 +472,48 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const addNote = async (date: string, content: string) => {
     const pt = settings.language === 'pt';
-    // Offline: cria localmente e enfileira para sincronizar depois
-    if (!isOnline()) {
-      const nowIso = new Date().toISOString();
-      const optimistic: Note = {
-        id: genLocalId(),
-        user_id: user?.id || '',
-        date,
-        content,
-        created_at: nowIso,
-        updated_at: nowIso,
-      };
-      setNotes(prev => [optimistic, ...prev]);
-      await cachePut('notes', optimistic);
-      await enqueueOp({ table: 'notes', action: 'insert', payload: optimistic });
-      await refreshSyncStatus();
-      toast.success(pt ? 'Anotação salva (offline)' : 'Note saved (offline)');
-      return;
-    }
-    try {
-      const newNote = await notesApi.create({ date, content });
-      setNotes(prev => [newNote, ...prev]);
-      await cachePut('notes', newNote);
-      toast.success(pt ? 'Anotação salva!' : 'Note saved!');
-    } catch (error) {
-      console.error('Error adding note:', error);
-      toast.error(pt ? 'Erro ao salvar anotação' : 'Error saving note');
-      throw error;
-    }
+    const nowIso = new Date().toISOString();
+    const optimistic: Note = {
+      id: genLocalId(),
+      user_id: user?.id || '',
+      date,
+      content,
+      created_at: nowIso,
+      updated_at: nowIso,
+    };
+    // LOCAL-FIRST: salva no aparelho + enfileira o backup + sincroniza em 2º plano
+    setNotes(prev => [optimistic, ...prev]);
+    await cachePut('notes', optimistic);
+    await enqueueOp({ table: 'notes', action: 'insert', payload: optimistic });
+    await refreshSyncStatus();
+    scheduleFlush();
+    toast.success(pt ? 'Anotação salva' : 'Note saved');
   };
 
   const deleteNote = async (id: string) => {
     const pt = settings.language === 'pt';
-    // Otimista: remove da UI e do cache imediatamente
     setNotes(prev => prev.filter(n => n.id !== id));
     await cacheDelete('notes', id);
-    if (!isOnline()) {
-      await enqueueOp({ table: 'notes', action: 'delete', payload: { id } });
-      await refreshSyncStatus();
-      toast.success(pt ? 'Anotação excluída (offline)' : 'Note deleted (offline)');
-      return;
-    }
-    try {
-      await notesApi.delete(id);
-      toast.success(pt ? 'Anotação excluída' : 'Note deleted');
-    } catch (error) {
-      console.error('Error deleting note:', error);
-      // Enfileira para tentar novamente quando reconectar
-      await enqueueOp({ table: 'notes', action: 'delete', payload: { id } });
-      await refreshSyncStatus();
-    }
+    await enqueueOp({ table: 'notes', action: 'delete', payload: { id } });
+    await refreshSyncStatus();
+    scheduleFlush();
+    toast.success(pt ? 'Anotação excluída' : 'Note deleted');
   };
 
   const refreshLicense = async () => {
+    if (!user) return;
     try {
-      if (!user) return;
-      const licenseData = await licenseApi.get();
+      // Timeout evita "pendurar" quando o navigator.onLine mente que há conexão.
+      const licenseData = await withTimeout(licenseApi.get(), 8000);
       setLicense(licenseData);
-      const status = licenseApi.checkAccess(licenseData);
-      setAccessStatus(status);
+      setAccessStatus(licenseApi.checkAccess(licenseData));
       await cacheSetLicense(licenseData);
     } catch (error) {
-      console.error('Error refreshing license:', error);
-      // OFFLINE: NÃO travar o usuário — mantém o acesso atual (licença em cache).
-      // Só marca erro de acesso se estivermos realmente online.
-      if (isOnline()) {
-        const defaultStatus: AccessStatus = {
-          hasAccess: false,
-          reason: 'Error',
-          daysRemaining: 0,
-          displayText: '🚫 Erro',
-          licenseType: 'free'
-        };
-        setAccessStatus(defaultStatus);
-      }
+      // Erro/timeout de REDE: nunca rebaixar o acesso por causa da rede. O bloqueio só
+      // pode vir de (a) resposta bem-sucedida do servidor ou (b) a DATA da licença em cache.
+      const cached = await cacheGetLicense<License>();
+      if (cached) setAccessStatus(licenseApi.checkAccess(cached));
+      // Sem cache: mantém o status atual (não trava).
     }
   };
 
@@ -612,76 +532,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
       created_at: nowIso,
     };
 
-    // Offline: cria localmente e enfileira
-    if (!isOnline()) {
-      setTasks(prev => [...prev, optimistic]);
-      await cachePut('tasks', optimistic);
-      await enqueueOp({
-        table: 'tasks',
-        action: 'insert',
-        payload: { ...optimistic, user_id: user?.id },
-      });
-      await refreshSyncStatus();
-      toast.success(pt ? 'Tarefa salva (offline)' : 'Task saved (offline)');
-      return;
-    }
-
-    try {
-      const newTask = await tasksApi.create(task);
-      setTasks(prev => [...prev, newTask]);
-      await cachePut('tasks', newTask);
-      toast.success('Task created successfully!');
-    } catch (error) {
-      console.error('❌ Error adding task:', error);
-      toast.error('Error creating task');
-      throw error;
-    }
+    // LOCAL-FIRST: salva no aparelho na hora (nunca falha), enfileira o backup e
+    // dispara a sincronização em segundo plano.
+    setTasks(prev => [...prev, optimistic]);
+    await cachePut('tasks', optimistic);
+    await enqueueOp({ table: 'tasks', action: 'insert', payload: { ...optimistic, user_id: user?.id } });
+    await refreshSyncStatus();
+    scheduleFlush();
+    toast.success(pt ? 'Tarefa salva' : 'Task saved');
   };
 
   const updateTask = async (id: string, updates: Partial<Task>) => {
     const existing = tasks.find(t => t.id === id);
     const merged = existing ? { ...existing, ...updates } : null;
-
-    // Otimista: aplica na UI e no cache
+    // LOCAL-FIRST
     setTasks(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
     if (merged) await cachePut('tasks', merged);
-
-    if (!isOnline()) {
-      await enqueueOp({ table: 'tasks', action: 'update', payload: { id, updates } });
-      await refreshSyncStatus();
-      return;
-    }
-    try {
-      const updatedTask = await tasksApi.update(id, updates);
-      setTasks(prev => prev.map(t => t.id === id ? updatedTask : t));
-      await cachePut('tasks', updatedTask);
-    } catch (error) {
-      console.error('Error updating task:', error);
-      await enqueueOp({ table: 'tasks', action: 'update', payload: { id, updates } });
-      await refreshSyncStatus();
-    }
+    await enqueueOp({ table: 'tasks', action: 'update', payload: { id, updates } });
+    await refreshSyncStatus();
+    scheduleFlush();
   };
 
   const deleteTask = async (id: string) => {
     const pt = settings.language === 'pt';
-    // Otimista
     setTasks(prev => prev.filter(t => t.id !== id));
     await cacheDelete('tasks', id);
-
-    if (!isOnline()) {
-      await enqueueOp({ table: 'tasks', action: 'delete', payload: { id } });
-      await refreshSyncStatus();
-      toast.success(pt ? 'Tarefa excluída (offline)' : 'Task deleted (offline)');
-      return;
-    }
-    try {
-      await tasksApi.delete(id);
-      toast.success('Task deleted');
-    } catch (error) {
-      console.error('Error deleting task:', error);
-      await enqueueOp({ table: 'tasks', action: 'delete', payload: { id } });
-      await refreshSyncStatus();
-    }
+    await enqueueOp({ table: 'tasks', action: 'delete', payload: { id } });
+    await refreshSyncStatus();
+    scheduleFlush();
+    toast.success(pt ? 'Tarefa excluída' : 'Task deleted');
   };
 
   const completeTask = async (id: string) => {
@@ -701,20 +580,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTasks(prev => prev.map(t => t.id === id ? merged : t));
       await cachePut('tasks', merged);
 
-      if (!isOnline()) {
-        await enqueueOp({ table: 'tasks', action: 'update', payload: { id, updates } });
-        await refreshSyncStatus();
-      } else {
-        try {
-          const updatedTask = await tasksApi.update(id, updates);
-          setTasks(prev => prev.map(t => t.id === id ? updatedTask : t));
-          await cachePut('tasks', updatedTask);
-        } catch (error) {
-          console.error('Error completing task online, queuing:', error);
-          await enqueueOp({ table: 'tasks', action: 'update', payload: { id, updates } });
-          await refreshSyncStatus();
-        }
-      }
+      // LOCAL-FIRST: já aplicado acima no state + cache; agora só enfileira o backup
+      await enqueueOp({ table: 'tasks', action: 'update', payload: { id, updates } });
+      await refreshSyncStatus();
+      scheduleFlush();
 
       // Play sound if enabled
       if (settings.sound) {
@@ -749,32 +618,120 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const addRescue = async (rescue: Omit<RescueProtocol, 'id' | 'date'>) => {
-    try {
-      const newRescue = await rescuesApi.create(rescue);
-      setRescues(prev => [newRescue, ...prev]);
-      toast.success('✅ Rescue complete!', {
-        description: 'You got out of the hole. Now focus on your target for today.',
-        duration: 4000
-      });
-    } catch (error) {
-      console.error('Error adding rescue:', error);
-      toast.error('Error saving rescue');
-      throw error;
-    }
+    const nowIso = new Date().toISOString();
+    const optimistic: RescueProtocol = { ...rescue, id: genLocalId(), date: nowIso } as RescueProtocol;
+    // LOCAL-FIRST
+    setRescues(prev => [optimistic, ...prev]);
+    await cachePut('rescues', optimistic);
+    // Payload explícito com as colunas reais da tabela (evita erro no upsert)
+    await enqueueOp({
+      table: 'rescues',
+      action: 'insert',
+      payload: {
+        id: optimistic.id,
+        date: nowIso,
+        user_id: user?.id,
+        phase1_source: rescue.phase1_source,
+        phase2_activity: rescue.phase2_activity,
+        phase3_activity: rescue.phase3_activity,
+        phase4_activity: rescue.phase4_activity,
+        phase5_target: rescue.phase5_target,
+        phase5_category: rescue.phase5_category,
+        phase5_duration_min: rescue.phase5_duration_min,
+        reflection_cause: rescue.reflection_cause,
+        reflection_adjust: rescue.reflection_adjust,
+        reflection_nugget: rescue.reflection_nugget,
+        completed_date: rescue.completed_date,
+      },
+    });
+    await refreshSyncStatus();
+    scheduleFlush();
+    toast.success('✅ Rescue complete!', {
+      description: 'You got out of the hole. Now focus on your target for today.',
+      duration: 4000,
+    });
+  };
+
+  // ---- Deadlines (prazos) — local-first ----
+  const addDeadline = async (input: { title: string; deadline_date: string; notes?: string }) => {
+    const nowIso = new Date().toISOString();
+    const optimistic: Deadline = {
+      id: genLocalId(),
+      user_id: user?.id || '',
+      title: input.title,
+      deadline_date: input.deadline_date,
+      notes: input.notes || null,
+      status: 'pending',
+      created_at: nowIso,
+      updated_at: nowIso,
+      completed_at: null,
+      notification_sent_30days: false,
+      notification_sent_15days: false,
+      notification_sent_7days: false,
+      notification_sent_3days: false,
+      notification_sent_1day: false,
+    };
+    setDeadlines(prev => [...prev, optimistic]);
+    await cachePut('deadlines', optimistic);
+    await enqueueOp({
+      table: 'deadlines_41f917a5',
+      action: 'insert',
+      payload: {
+        id: optimistic.id,
+        user_id: user?.id,
+        title: input.title,
+        deadline_date: input.deadline_date,
+        notes: input.notes || null,
+        status: 'pending',
+      },
+    });
+    await refreshSyncStatus();
+    scheduleFlush();
+  };
+
+  const updateDeadline = async (id: string, updates: { title?: string; deadline_date?: string; notes?: string }) => {
+    const existing = deadlines.find(d => d.id === id);
+    const merged = existing ? { ...existing, ...updates, updated_at: new Date().toISOString() } : null;
+    setDeadlines(prev => prev.map(d => d.id === id ? { ...d, ...updates } : d));
+    if (merged) await cachePut('deadlines', merged);
+    await enqueueOp({ table: 'deadlines_41f917a5', action: 'update', payload: { id, updates } });
+    await refreshSyncStatus();
+    scheduleFlush();
+  };
+
+  const completeDeadline = async (id: string) => {
+    const existing = deadlines.find(d => d.id === id);
+    const updates = { status: 'completed' as const, completed_at: new Date().toISOString() };
+    const merged = existing ? { ...existing, ...updates } : null;
+    setDeadlines(prev => prev.map(d => d.id === id ? { ...d, ...updates } : d));
+    if (merged) await cachePut('deadlines', merged);
+    await enqueueOp({ table: 'deadlines_41f917a5', action: 'update', payload: { id, updates } });
+    await refreshSyncStatus();
+    scheduleFlush();
+  };
+
+  const deleteDeadline = async (id: string) => {
+    setDeadlines(prev => prev.filter(d => d.id !== id));
+    await cacheDelete('deadlines', id);
+    await enqueueOp({ table: 'deadlines_41f917a5', action: 'delete', payload: { id } });
+    await refreshSyncStatus();
+    scheduleFlush();
   };
 
   const updateSettings = async (newSettings: Settings) => {
+    const pt = newSettings.language === 'pt';
+    // LOCAL-FIRST: aplica e cacheia na hora (nunca falha/trava)
+    setSettings(newSettings);
+    await cacheSetSettings(newSettings);
+    // Best-effort: tenta salvar no servidor em 2º plano (com timeout). Offline, fica local.
     try {
-      console.log('⚙️ UPDATING SETTINGS:', newSettings);
-      const updated = await settingsApi.update(newSettings);
-      console.log('✅ SETTINGS UPDATED:', updated);
+      const updated = await withTimeout(settingsApi.update(newSettings), 8000);
       setSettings(updated);
-      toast.success('Settings updated');
-    } catch (error) {
-      console.error('❌ Error updating settings:', error);
-      toast.error('Error updating settings');
-      throw error;
+      await cacheSetSettings(updated);
+    } catch {
+      /* mantém local; sincroniza numa próxima vez online */
     }
+    toast.success(pt ? 'Configurações salvas' : 'Settings updated');
   };
 
   const signIn = async (email: string, password: string) => {
@@ -884,6 +841,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     deleteTask,
     completeTask,
     addRescue,
+    addDeadline,
+    updateDeadline,
+    completeDeadline,
+    deleteDeadline,
     addNote,
     deleteNote,
     updateSettings,

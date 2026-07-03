@@ -5,6 +5,8 @@ import { getCategoryName } from '../utils/category-mapper';
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import { useApp } from '../context/AppContext';
+import { isOnline } from '../lib/sync-manager';
+import { toast } from 'sonner';
 import type { Task, Deadline } from '../types';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
@@ -628,7 +630,14 @@ export function Home() {
         <div className="fixed left-0 right-0 z-50" style={{ bottom: 'calc(24px + 7rem)' }}>
           <div className="max-w-[800px] mx-auto px-5 flex gap-3">
             <button
-              onClick={() => setShowVoiceChoice(true)}
+              onClick={() => {
+                // Voz (transcrição) e Agendar por IA dependem da nuvem — offline não rola.
+                if (!isOnline()) {
+                  toast.error(settings.language === 'pt' ? 'Recurso de voz precisa de internet' : 'Voice features need internet');
+                  return;
+                }
+                setShowVoiceChoice(true);
+              }}
               className="bg-[#FFFFFF] dark:bg-[#151515] border border-[#8B7355] dark:border-[#A89580] text-[#8B7355] dark:text-[#A89580] p-4 rounded-xl shadow-lg hover:shadow-xl hover:bg-[#8B7355]/10 dark:hover:bg-[#A89580]/10 transition-all duration-300 active:scale-[0.98] flex items-center justify-center"
             >
               <Mic className="w-5 h-5" />

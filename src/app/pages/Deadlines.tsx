@@ -2,14 +2,14 @@ import { useState, useEffect } from 'react';
 import { ArrowLeft, Plus, Edit2, Check, Trash2, Clock } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { useApp } from '../context/AppContext';
-import { deadlinesApi, calcularDiasRestantes } from '../lib/deadlines-api';
+import { calcularDiasRestantes } from '../lib/deadlines-api';
 import type { Deadline } from '../types';
 import { toast } from 'sonner';
 import { translations } from '../utils/translations';
 
 export function Deadlines() {
   const navigate = useNavigate();
-  const { deadlines, refreshDeadlines, settings } = useApp();
+  const { deadlines, addDeadline, updateDeadline, completeDeadline, deleteDeadline, settings } = useApp();
   const [showModal, setShowModal] = useState(false);
   const [editingDeadline, setEditingDeadline] = useState<Deadline | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
@@ -80,16 +80,15 @@ export function Deadlines() {
 
     try {
       if (editingDeadline) {
-        await deadlinesApi.update(editingDeadline.id, formData);
+        await updateDeadline(editingDeadline.id, formData);
         toast.success(t.deadline_updated);
       } else {
-        await deadlinesApi.create(formData);
+        await addDeadline(formData);
         const locale = settings.language === 'pt' ? 'pt-BR' : 'en-US';
         const dataFormatada = new Date(formData.deadline_date).toLocaleDateString(locale);
         toast.success(`✅ ${t.deadline_created} ${dataFormatada}`);
       }
-      
-      await refreshDeadlines();
+
       setShowModal(false);
       setEditingDeadline(null);
       setFormData({ title: '', deadline_date: '', notes: '' });
@@ -101,9 +100,8 @@ export function Deadlines() {
 
   const handleComplete = async (id: string) => {
     try {
-      await deadlinesApi.complete(id);
+      await completeDeadline(id);
       toast.success(t.deadline_completed);
-      await refreshDeadlines();
     } catch (error) {
       console.error('Error completing deadline:', error);
       toast.error(t.error_completing_deadline);
@@ -116,9 +114,8 @@ export function Deadlines() {
     }
 
     try {
-      await deadlinesApi.delete(id);
+      await deleteDeadline(id);
       toast.success(t.deadline_deleted);
-      await refreshDeadlines();
     } catch (error) {
       console.error('Error deleting deadline:', error);
       toast.error(t.error_deleting_deadline);

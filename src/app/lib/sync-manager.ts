@@ -63,20 +63,28 @@ export async function refreshSyncStatus(): Promise<void> {
   emit();
 }
 
-// Executa uma única operação enfileirada contra o Supabase
+// Envolve uma promise (ou thenable do supabase) com timeout — evita "pendurar" offline
+// quando o navigator.onLine mente que há conexão.
+export function withTimeout<T>(p: PromiseLike<T>, ms = 5000): Promise<T> {
+  return Promise.race([
+    Promise.resolve(p),
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
+  ]);
+}
+
+// Executa uma única operação enfileirada contra o Supabase (sempre com timeout)
 async function runOp(op: SyncOp): Promise<void> {
   if (op.action === 'insert') {
     // upsert para ser idempotente caso a operação seja reenviada
-    const { error } = await supabase.from(op.table).upsert(op.payload);
+    const { error } = await withTimeout(supabase.from(op.table).upsert(op.payload));
     if (error) throw error;
   } else if (op.action === 'update') {
-    const { error } = await supabase
-      .from(op.table)
-      .update(op.payload.updates)
-      .eq('id', op.payload.id);
+    const { error } = await withTimeout(
+      supabase.from(op.table).update(op.payload.updates).eq('id', op.payload.id)
+    );
     if (error) throw error;
   } else if (op.action === 'delete') {
-    const { error } = await supabase.from(op.table).delete().eq('id', op.payload.id);
+    const { error } = await withTimeout(supabase.from(op.table).delete().eq('id', op.payload.id));
     if (error) throw error;
   }
 }
@@ -121,6 +129,17 @@ export async function flushQueue(): Promise<{ synced: number; failed: number }> 
   return { synced, failed };
 }
 
+// Dispara um flush em segundo plano com debounce. Chamar após CADA escrita local —
+// nunca com await bloqueante. Se estiver offline, o flush apenas não faz nada.
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+export function scheduleFlush(delay = 500): void {
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = setTimeout(() => {
+    flushTimer = null;
+    void flushQueue();
+  }, delay);
+}
+
 // Marca o momento de uma sincronização completa (após recarregar tudo do servidor)
 export async function markFullSync(): Promise<void> {
   currentLastSync = Date.now();
@@ -145,6 +164,12 @@ export function initSyncManager(onReconnect?: () => void): () => void {
   window.addEventListener('online', handleOnline);
   window.addEventListener('offline', handleOffline);
 
+  // Rede de segurança: tenta esvaziar a fila periodicamente (caso o evento 'online'
+  // não dispare, ou o navigator.onLine tenha mentido e depois voltou de verdade).
+  const periodic = setInterval(() => {
+    if (isOnline()) void flushQueue();
+  }, 20000);
+
   // Estado inicial + tenta esvaziar fila se já estiver online
   computeStatus().then(() => {
     emit();
@@ -154,5 +179,6 @@ export function initSyncManager(onReconnect?: () => void): () => void {
   return () => {
     window.removeEventListener('online', handleOnline);
     window.removeEventListener('offline', handleOffline);
+    clearInterval(periodic);
   };
 }
