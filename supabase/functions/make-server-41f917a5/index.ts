@@ -1909,8 +1909,141 @@ app.get("/make-server-41f917a5/goals/stats/:year", async (c) => {
 // ADMIN ENDPOINTS
 // ========================================
 
+// Chave admin (header x-admin-key). Se o secret ADMIN_KEY não estiver definido, usa a
+// senha padrão do painel. Protege os dados de TODOS os usuários (service-role).
+const ADMIN_KEY = Deno.env.get('ADMIN_KEY') || 'Truefocus2026';
+function isAdmin(c: any): boolean {
+  return c.req.header('x-admin-key') === ADMIN_KEY;
+}
+
+// Rótulo + status (com expiração) + se é pagante, a partir da licença
+function computeLicenseInfo(lic: any): { type: string; label: string; isPaid: boolean } {
+  if (!lic) return { type: 'trial', label: 'Trial', isPaid: false };
+  let type = lic.license_type || 'free';
+  const nowT = Date.now();
+  if (type === 'trial' && lic.trial_ends_at && new Date(lic.trial_ends_at).getTime() < nowT) type = 'expired';
+  if ((type === 'annual' || type === 'monthly') && lic.subscription_ends_at && new Date(lic.subscription_ends_at).getTime() < nowT) type = 'expired';
+  const isPaid = ['annual', 'lifetime', 'monthly'].includes(type) && !!lic.stripe_customer_id;
+  const labelMap: Record<string, string> = { trial: 'Trial', monthly: 'Monthly', annual: 'Annual', lifetime: 'Lifetime', expired: 'Expired', free: 'Free' };
+  return { type, label: labelMap[type] || type, isPaid };
+}
+
+// Overview minimalista: stats + cadastros/dia + atividade por usuário (uma só chamada)
+app.get("/make-server-41f917a5/admin/overview", async (c) => {
+  if (!isAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
+  try {
+    // Mês pedido (YYYY-MM), padrão = mês atual
+    const monthParam = c.req.query('month');
+    const now = new Date();
+    let year = now.getFullYear();
+    let month = now.getMonth(); // 0-based
+    if (monthParam && /^\d{4}-\d{2}$/.test(monthParam)) {
+      const [y, m] = monthParam.split('-').map(Number);
+      year = y;
+      month = m - 1;
+    }
+
+    // Usuários (fonte real de cadastro), licenças e atividade — em paralelo
+    const [authRes, licRes, tasksRes, notesRes, deadlinesRes] = await Promise.all([
+      supabaseAdmin.auth.admin.listUsers({ perPage: 1000 }),
+      supabaseAdmin.from('licenses').select('*'),
+      supabaseAdmin.from('tasks').select('user_id, created_at, completed_at'),
+      supabaseAdmin.from('notes').select('user_id, created_at, updated_at'),
+      supabaseAdmin.from('deadlines_41f917a5').select('user_id, created_at, updated_at'),
+    ]);
+
+    const authUsers = authRes.data?.users || [];
+    const licById = new Map((licRes.data || []).map((l: any) => [l.user_id, l]));
+
+    // Agrega contagem + última atividade por user_id
+    const agg = new Map<string, { tasks: number; notes: number; deadlines: number; last: number }>();
+    const bump = (uid: string, field: 'tasks' | 'notes' | 'deadlines', ...times: (string | null | undefined)[]) => {
+      if (!uid) return;
+      let a = agg.get(uid);
+      if (!a) { a = { tasks: 0, notes: 0, deadlines: 0, last: 0 }; agg.set(uid, a); }
+      a[field]++;
+      for (const t of times) {
+        if (t) { const ms = new Date(t).getTime(); if (ms > a.last) a.last = ms; }
+      }
+    };
+    (tasksRes.data || []).forEach((r: any) => bump(r.user_id, 'tasks', r.created_at, r.completed_at));
+    (notesRes.data || []).forEach((r: any) => bump(r.user_id, 'notes', r.created_at, r.updated_at));
+    (deadlinesRes.data || []).forEach((r: any) => bump(r.user_id, 'deadlines', r.created_at, r.updated_at));
+
+    // Lista de usuários com plano + contagens + última atividade
+    const users = authUsers.map((u: any) => {
+      const a = agg.get(u.id) || { tasks: 0, notes: 0, deadlines: 0, last: 0 };
+      const li = computeLicenseInfo(licById.get(u.id));
+      const signInMs = u.last_sign_in_at ? new Date(u.last_sign_in_at).getTime() : 0;
+      const lastActive = Math.max(a.last, signInMs);
+      return {
+        id: u.id,
+        email: u.email || '',
+        name: u.user_metadata?.name || (u.email ? u.email.split('@')[0] : 'Unknown'),
+        created_at: u.created_at,
+        license_type: li.type,
+        planLabel: li.label,
+        tasksCount: a.tasks,
+        notesCount: a.notes,
+        deadlinesCount: a.deadlines,
+        lastActiveAt: lastActive ? new Date(lastActive).toISOString() : null,
+      };
+    });
+    users.sort((x: any, y: any) => (y.lastActiveAt ? new Date(y.lastActiveAt).getTime() : 0) - (x.lastActiveAt ? new Date(x.lastActiveAt).getTime() : 0));
+
+    // Cadastros por dia do mês pedido
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const dailySignups = Array.from({ length: daysInMonth }, (_, i) => ({ day: i + 1, count: 0 }));
+    const startOfMonth = new Date(year, month, 1);
+    const endOfMonth = new Date(year, month + 1, 1);
+    authUsers.forEach((u: any) => {
+      if (!u.created_at) return;
+      const d = new Date(u.created_at);
+      if (d.getFullYear() === year && d.getMonth() === month) dailySignups[d.getDate() - 1].count++;
+    });
+
+    // Stats + receita (soma dos planos pagos com stripe_customer_id)
+    const planValue: Record<string, number> = { annual: 59, lifetime: 149, monthly: 6.99 };
+    let paidUsers = 0, trialUsers = 0, revenueTotal = 0, revenueThisMonth = 0, newThisMonth = 0;
+    authUsers.forEach((u: any) => {
+      const cd = u.created_at ? new Date(u.created_at) : null;
+      if (cd && cd >= startOfMonth && cd < endOfMonth) newThisMonth++;
+      const lic = licById.get(u.id);
+      const li = computeLicenseInfo(lic);
+      if (li.type === 'trial') trialUsers++;
+      if (li.isPaid) {
+        paidUsers++;
+        const v = planValue[li.type] || 0;
+        revenueTotal += v;
+        if (lic?.created_at) {
+          const ld = new Date(lic.created_at);
+          if (ld >= startOfMonth && ld < endOfMonth) revenueThisMonth += v;
+        }
+      }
+    });
+
+    return c.json({
+      month: `${year}-${String(month + 1).padStart(2, '0')}`,
+      stats: {
+        totalUsers: authUsers.length,
+        newThisMonth,
+        paidUsers,
+        trialUsers,
+        revenueTotal: Math.round(revenueTotal * 100) / 100,
+        revenueThisMonth: Math.round(revenueThisMonth * 100) / 100,
+      },
+      dailySignups,
+      users,
+    });
+  } catch (error) {
+    console.error('Error in admin/overview:', error);
+    return c.json({ error: 'Failed to load overview', details: String(error) }, 500);
+  }
+});
+
 // Get all users with license info
 app.get("/make-server-41f917a5/admin/users", async (c) => {
+  if (!isAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
   try {
     console.log('📊 Admin: Fetching all users...');
     
@@ -1969,6 +2102,7 @@ app.get("/make-server-41f917a5/admin/users", async (c) => {
 
 // Get stats
 app.get("/make-server-41f917a5/admin/stats", async (c) => {
+  if (!isAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
   try {
     console.log('📊 Admin: Calculating stats...');
     
@@ -2049,6 +2183,7 @@ app.get("/make-server-41f917a5/admin/stats", async (c) => {
 
 // Update user license
 app.post("/make-server-41f917a5/admin/update-license", async (c) => {
+  if (!isAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const { userId, licenseType } = await c.req.json();
     

@@ -1,831 +1,454 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router';
-import { Users, DollarSign, Activity, TrendingUp, LogOut, Eye, Edit2, X, RefreshCw, AlertCircle, CheckCircle, Database } from 'lucide-react';
+import { Users, DollarSign, LogOut, Eye, Edit2, X, RefreshCw, ChevronLeft, ChevronRight, UserPlus } from 'lucide-react';
 import { supabase } from '../app/lib/supabase';
+import { projectId, publicAnonKey } from '/utils/supabase/info';
 
-interface User {
+const ENDPOINT = `https://${projectId}.supabase.co/functions/v1/make-server-41f917a5`;
+
+interface AdminUser {
   id: string;
   email: string;
   name: string;
   created_at: string;
-  license_type: 'trial' | 'monthly' | 'annual' | 'lifetime' | 'expired' | 'free';
-  license_expires_at: string | null;
+  license_type: string;
+  planLabel: string;
+  tasksCount: number;
+  notesCount: number;
+  deadlinesCount: number;
+  lastActiveAt: string | null;
 }
 
-interface Stats {
-  totalUsers: number;
-  last30Days: number;
-  revenueThisMonth: number;
-  revenueThisWeek: number;
-  trialUsers: number;
-  paidUsers: number;
+interface Overview {
+  month: string;
+  stats: {
+    totalUsers: number;
+    newThisMonth: number;
+    paidUsers: number;
+    trialUsers: number;
+    revenueTotal: number;
+    revenueThisMonth: number;
+  };
+  dailySignups: { day: number; count: number }[];
+  users: AdminUser[];
+}
+
+const MONTHS_PT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
+function monthKey(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function formatDate(iso: string | null) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function daysAgo(iso: string | null): number | null {
+  if (!iso) return null;
+  return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+}
+
+function lastActiveText(iso: string | null): string {
+  const d = daysAgo(iso);
+  if (d === null) return 'nunca';
+  if (d <= 0) return 'hoje';
+  if (d === 1) return 'ontem';
+  return `há ${d} dias`;
+}
+
+function lastActiveColor(iso: string | null): string {
+  const d = daysAgo(iso);
+  if (d === null || d > 30) return 'text-red-500';
+  if (d > 7) return 'text-[#9E9E9E]';
+  return 'text-green-600';
+}
+
+function planBadge(type: string): string {
+  const map: Record<string, string> = {
+    trial: 'bg-blue-50 border-blue-200 text-blue-700',
+    free: 'bg-gray-50 border-gray-200 text-gray-600',
+    monthly: 'bg-green-50 border-green-200 text-green-700',
+    annual: 'bg-purple-50 border-purple-200 text-purple-700',
+    lifetime: 'bg-yellow-50 border-yellow-200 text-yellow-700',
+    expired: 'bg-red-50 border-red-200 text-red-700',
+  };
+  return map[type] || 'bg-gray-50 border-gray-200 text-gray-600';
 }
 
 export function AdminDashboard() {
   const navigate = useNavigate();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [adminKey, setAdminKey] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [connectionError, setConnectionError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
-  const [stats, setStats] = useState<Stats>({
-    totalUsers: 0,
-    last30Days: 0,
-    revenueThisMonth: 0,
-    revenueThisWeek: 0,
-    trialUsers: 0,
-    paidUsers: 0
-  });
-  const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
-  const [initialLoading, setInitialLoading] = useState(true);
-  const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [newLicenseType, setNewLicenseType] = useState<'trial' | 'monthly' | 'annual' | 'lifetime'>('trial');
-  const [savingLicense, setSavingLicense] = useState(false);
+  const [data, setData] = useState<Overview | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState<Date>(new Date());
+  const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
+  const [newLicenseType, setNewLicenseType] = useState<'trial' | 'annual' | 'lifetime'>('trial');
+  const [saving, setSaving] = useState(false);
 
+  // Restaura sessão admin
   useEffect(() => {
-    const auth = sessionStorage.getItem('truefocus_admin_auth');
-    if (auth === 'true') {
+    const key = sessionStorage.getItem('truefocus_admin_key');
+    if (sessionStorage.getItem('truefocus_admin_auth') === 'true' && key) {
+      setAdminKey(key);
       setIsAuthenticated(true);
-      loadData();
-    } else {
-      setInitialLoading(false);
     }
   }, []);
 
+  // Carrega sempre que autenticar ou trocar de mês
+  useEffect(() => {
+    if (isAuthenticated && adminKey) loadData(adminKey, selectedMonth);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, adminKey, selectedMonth]);
+
+  const loadData = async (key: string, month: Date) => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch(`${ENDPOINT}/admin/overview?month=${monthKey(month)}`, {
+        headers: { Authorization: `Bearer ${publicAnonKey}`, 'x-admin-key': key },
+      });
+      if (res.status === 401) {
+        setError('Senha incorreta');
+        handleLogout();
+        return;
+      }
+      if (!res.ok) {
+        setError(`Erro ${res.status} ao carregar`);
+        return;
+      }
+      setData(await res.json());
+    } catch (e) {
+      setError(`Erro de conexão: ${e}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === 'Truefocus2026') {
-      sessionStorage.setItem('truefocus_admin_auth', 'true');
-      setIsAuthenticated(true);
-      setError('');
-      loadData();
-    } else {
-      setError('Incorrect password');
-      setPassword('');
-    }
+    setError('');
+    sessionStorage.setItem('truefocus_admin_auth', 'true');
+    sessionStorage.setItem('truefocus_admin_key', password);
+    setAdminKey(password);
+    setIsAuthenticated(true);
   };
 
   const handleLogout = () => {
     sessionStorage.removeItem('truefocus_admin_auth');
+    sessionStorage.removeItem('truefocus_admin_key');
     setIsAuthenticated(false);
+    setAdminKey('');
     setPassword('');
+    setData(null);
   };
 
-  const loadData = async () => {
-    setLoading(true);
-    setConnectionError('');
-    setSuccessMessage('');
-    
-    try {
-      console.log('🔍 Admin: Loading data from Supabase licenses table...');
-      console.log('📊 Supabase URL:', supabase.supabaseUrl);
-      console.log('📊 Supabase Key exists:', !!supabase.supabaseKey);
-      
-      // Add timeout to catch hanging queries
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Query timeout after 10 seconds')), 10000)
-      );
-      
-      const queryPromise = supabase
-        .from('licenses')
-        .select('*')
-        .order('created_at', { ascending: false });
-      
-      console.log('⏳ Executing query...');
-      const { data: licenses, error: licensesError } = await Promise.race([
-        queryPromise,
-        timeoutPromise
-      ]) as any;
-      
-      console.log('✅ Query completed!');
-      
-      if (licensesError) {
-        console.error('❌ Error fetching licenses:', licensesError);
-        setConnectionError(`Database error: ${licensesError.message}`);
-        setLoading(false);
-        setInitialLoading(false);
-        return;
-      }
+  const openEdit = (u: AdminUser) => {
+    setEditingUser(u);
+    setNewLicenseType(['trial', 'annual', 'lifetime'].includes(u.license_type) ? (u.license_type as any) : 'trial');
+  };
 
-      console.log('✅ Licenses loaded:', licenses?.length || 0);
-
-      if (!licenses || licenses.length === 0) {
-        setConnectionError('No users found in database. Make sure users have been created.');
-        setUsers([]);
-        setStats({
-          totalUsers: 0,
-          last30Days: 0,
-          revenueThisMonth: 0,
-          revenueThisWeek: 0,
-          trialUsers: 0,
-          paidUsers: 0
-        });
-        setLoading(false);
-        setInitialLoading(false);
-        return;
-      }
-
-      // Transform licenses into users with calculated license types
-      const transformedUsers: User[] = licenses.map(license => {
-        const now = new Date();
-        
-        // Determine which expiration date to use based on license type
-        let expiresAt = null;
-        if (license.license_type === 'trial' && license.trial_ends_at) {
-          expiresAt = new Date(license.trial_ends_at);
-        } else if ((license.license_type === 'monthly' || license.license_type === 'annual') && license.subscription_ends_at) {
-          expiresAt = new Date(license.subscription_ends_at);
-        }
-        
-        let actualType: string = license.license_type || 'free';
-        
-        // Check if license has expired
-        if (expiresAt && expiresAt < now && license.license_type !== 'lifetime') {
-          actualType = 'expired';
-        }
-        
-        return {
-          id: license.user_id,
-          name: license.user_name || license.user_email?.split('@')[0] || 'Unknown',
-          email: license.user_email || 'No email',
-          created_at: license.created_at,
-          license_type: actualType as any,
-          license_expires_at: license.trial_ends_at || license.subscription_ends_at
-        };
-      });
-
-      setUsers(transformedUsers);
-
-      // Calculate stats
-      const now = new Date();
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      
-      const startOfMonth = new Date();
-      startOfMonth.setDate(1);
-      startOfMonth.setHours(0, 0, 0, 0);
-      
-      const startOfWeek = new Date();
-      startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
-      startOfWeek.setHours(0, 0, 0, 0);
-
-      const totalUsers = licenses.length;
-      
-      const last30Days = licenses.filter(l => {
-        const createdDate = new Date(l.created_at);
-        return createdDate >= thirtyDaysAgo;
-      }).length;
-
-      // Count trial vs paid users
-      const trialUsers = transformedUsers.filter(u => u.license_type === 'trial' || u.license_type === 'free').length;
-      const paidUsers = transformedUsers.filter(u => ['monthly', 'annual', 'lifetime'].includes(u.license_type)).length;
-
-      // Calculate revenue - ONLY count paid licenses with stripe_customer_id (real Stripe conversions)
-      // Exclude manual admin changes
-      const monthlyPaidLicenses = licenses.filter(l => {
-        const createdDate = new Date(l.created_at);
-        return (
-          createdDate >= startOfMonth && 
-          ['monthly', 'annual', 'lifetime'].includes(l.license_type) &&
-          l.stripe_customer_id // ONLY count if paid via Stripe
-        );
-      });
-
-      const weeklyPaidLicenses = licenses.filter(l => {
-        const createdDate = new Date(l.created_at);
-        return (
-          createdDate >= startOfWeek && 
-          ['monthly', 'annual', 'lifetime'].includes(l.license_type) &&
-          l.stripe_customer_id // ONLY count if paid via Stripe
-        );
-      });
-
-      let revenueThisMonth = 0;
-      monthlyPaidLicenses.forEach(license => {
-        if (license.license_type === 'monthly') revenueThisMonth += 6.99;
-        if (license.license_type === 'annual') revenueThisMonth += 59;
-        if (license.license_type === 'lifetime') revenueThisMonth += 149;
-      });
-
-      let revenueThisWeek = 0;
-      weeklyPaidLicenses.forEach(license => {
-        if (license.license_type === 'monthly') revenueThisWeek += 6.99;
-        if (license.license_type === 'annual') revenueThisWeek += 59;
-        if (license.license_type === 'lifetime') revenueThisWeek += 149;
-      });
-
-      setStats({
-        totalUsers,
-        last30Days,
-        revenueThisMonth: Math.round(revenueThisMonth * 100) / 100,
-        revenueThisWeek: Math.round(revenueThisWeek * 100) / 100,
-        trialUsers,
-        paidUsers
-      });
-
-      console.log('✅ Admin dashboard loaded:', {
-        totalUsers,
-        last30Days,
-        trialUsers,
-        paidUsers,
-        revenueThisMonth,
-        revenueThisWeek
-      });
-
-      setSuccessMessage(`✅ Loaded ${totalUsers} users from database`);
-      setTimeout(() => setSuccessMessage(''), 3000);
-
-    } catch (error) {
-      console.error('❌ Error loading admin data:', error);
-      setConnectionError(`Connection error: ${error}`);
-    } finally {
-      setLoading(false);
-      setInitialLoading(false);
+  // Edição de plano feita direto no Supabase (colunas corretas trial_ends_at/subscription_ends_at)
+  const applyLicense = async (userId: string, type: 'trial' | 'annual' | 'lifetime' | 'expire') => {
+    const now = new Date();
+    const updateData: any = { updated_at: now.toISOString() };
+    if (type === 'expire') {
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      // expira conforme o tipo atual
+      if (editingUser?.license_type === 'trial') updateData.trial_ends_at = yesterday.toISOString();
+      else updateData.subscription_ends_at = yesterday.toISOString();
+    } else if (type === 'trial') {
+      const end = new Date(now); end.setDate(end.getDate() + 10);
+      updateData.license_type = 'trial';
+      updateData.trial_started_at = now.toISOString();
+      updateData.trial_ends_at = end.toISOString();
+      updateData.subscription_started_at = null;
+      updateData.subscription_ends_at = null;
+    } else if (type === 'annual') {
+      const end = new Date(now); end.setFullYear(end.getFullYear() + 1);
+      updateData.license_type = 'annual';
+      updateData.subscription_started_at = now.toISOString();
+      updateData.subscription_ends_at = end.toISOString();
+      updateData.subscription_status = 'active';
+      updateData.trial_ends_at = null;
+    } else if (type === 'lifetime') {
+      updateData.license_type = 'lifetime';
+      updateData.subscription_started_at = now.toISOString();
+      updateData.subscription_status = 'active';
+      updateData.trial_ends_at = null;
     }
-  };
-
-  const handleEditUser = (user: User) => {
-    setEditingUser(user);
-    // Map displayed types to actual DB types
-    const actualType = ['trial', 'monthly', 'annual', 'lifetime'].includes(user.license_type) 
-      ? user.license_type 
-      : 'trial';
-    setNewLicenseType(actualType as any);
+    const { error: upErr } = await supabase.from('licenses').update(updateData).eq('user_id', userId);
+    if (upErr) throw upErr;
   };
 
   const handleSaveEdit = async () => {
     if (!editingUser) return;
-
-    setSavingLicense(true);
+    setSaving(true);
+    setError('');
     try {
-      console.log(`📝 Updating license for ${editingUser.email} to ${newLicenseType}`);
-      
-      const now = new Date();
-      let updateData: any = {
-        license_type: newLicenseType,
-        updated_at: now.toISOString()
-      };
-      
-      if (newLicenseType === 'trial') {
-        const trialEnd = new Date(now);
-        trialEnd.setDate(trialEnd.getDate() + 30);
-        updateData.trial_started_at = now.toISOString();
-        updateData.trial_ends_at = trialEnd.toISOString();
-        updateData.subscription_started_at = null;
-        updateData.subscription_ends_at = null;
-      } else if (newLicenseType === 'monthly') {
-        const monthlyEnd = new Date(now);
-        monthlyEnd.setMonth(monthlyEnd.getMonth() + 1);
-        updateData.subscription_started_at = now.toISOString();
-        updateData.subscription_ends_at = monthlyEnd.toISOString();
-        updateData.trial_started_at = null;
-        updateData.trial_ends_at = null;
-      } else if (newLicenseType === 'annual') {
-        const annualEnd = new Date(now);
-        annualEnd.setFullYear(annualEnd.getFullYear() + 1);
-        updateData.subscription_started_at = now.toISOString();
-        updateData.subscription_ends_at = annualEnd.toISOString();
-        updateData.trial_started_at = null;
-        updateData.trial_ends_at = null;
-      } else if (newLicenseType === 'lifetime') {
-        const lifetimeEnd = new Date(now);
-        lifetimeEnd.setFullYear(lifetimeEnd.getFullYear() + 100);
-        updateData.subscription_started_at = now.toISOString();
-        updateData.subscription_ends_at = lifetimeEnd.toISOString();
-        updateData.trial_started_at = null;
-        updateData.trial_ends_at = null;
-      }
-
-      // Update license in Supabase
-      const { error: updateError } = await supabase
-        .from('licenses')
-        .update(updateData)
-        .eq('user_id', editingUser.id);
-
-      if (updateError) {
-        console.error('❌ Failed to update license:', updateError);
-        setConnectionError(`Failed to update license: ${updateError.message}`);
-        setSavingLicense(false);
-        return;
-      }
-
-      console.log('✅ License updated successfully');
-      setSuccessMessage(`✅ ${editingUser.email} updated to ${newLicenseType.toUpperCase()}`);
-      setTimeout(() => setSuccessMessage(''), 3000);
-      
+      await applyLicense(editingUser.id, newLicenseType);
       setEditingUser(null);
-      
-      // Reload data
-      await loadData();
-    } catch (error) {
-      console.error('❌ Error updating license:', error);
-      setConnectionError(`Error updating license: ${error}`);
+      await loadData(adminKey, selectedMonth);
+    } catch (e) {
+      setError(`Erro ao atualizar plano: ${e}`);
     } finally {
-      setSavingLicense(false);
+      setSaving(false);
     }
   };
 
   const handleExpireNow = async () => {
     if (!editingUser) return;
-    
-    if (!confirm(`⚠️ EXPIRE ${editingUser.email}?\n\nThis will set expiration to YESTERDAY to test the lock system.\n\nContinue?`)) {
-      return;
-    }
-
-    setSavingLicense(true);
+    if (!confirm(`Expirar a licença de ${editingUser.email}? (para testar o bloqueio)`)) return;
+    setSaving(true);
+    setError('');
     try {
-      console.log(`⏰ Expiring license for ${editingUser.email}`);
-      
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      
-      let updateData: any = {
-        updated_at: new Date().toISOString()
-      };
-      
-      if (editingUser.license_type === 'trial') {
-        updateData.trial_ends_at = yesterday.toISOString();
-      } else if (['monthly', 'annual', 'lifetime'].includes(editingUser.license_type)) {
-        updateData.subscription_ends_at = yesterday.toISOString();
-      }
-
-      const { error: updateError } = await supabase
-        .from('licenses')
-        .update(updateData)
-        .eq('user_id', editingUser.id);
-
-      if (updateError) {
-        console.error('❌ Failed to expire license:', updateError);
-        setConnectionError(`Failed to expire license: ${updateError.message}`);
-        setSavingLicense(false);
-        return;
-      }
-
-      console.log('✅ License expired successfully');
-      setSuccessMessage(`⚠️ ${editingUser.email} license EXPIRED for testing`);
-      setTimeout(() => setSuccessMessage(''), 5000);
-      
+      await applyLicense(editingUser.id, 'expire');
       setEditingUser(null);
-      
-      await loadData();
-    } catch (error) {
-      console.error('❌ Error expiring license:', error);
-      setConnectionError(`Error expiring license: ${error}`);
+      await loadData(adminKey, selectedMonth);
+    } catch (e) {
+      setError(`Erro ao expirar: ${e}`);
     } finally {
-      setSavingLicense(false);
+      setSaving(false);
     }
   };
 
-  const calculateDaysRemaining = (expiresAt: string | null, licenseType: string) => {
-    if (!['trial', 'monthly', 'annual'].includes(licenseType) || !expiresAt) return null;
-    
-    const now = new Date();
-    const expires = new Date(expiresAt);
-    const diffTime = expires.getTime() - now.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    return diffDays > 0 ? diffDays : 0;
-  };
+  const maxSignups = useMemo(
+    () => Math.max(1, ...(data?.dailySignups.map((d) => d.count) || [1])),
+    [data]
+  );
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'short', 
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
+  const isCurrentMonth =
+    selectedMonth.getFullYear() === new Date().getFullYear() &&
+    selectedMonth.getMonth() === new Date().getMonth();
 
-  const getLicenseLabel = (user: User) => {
-    const daysRemaining = calculateDaysRemaining(user.license_expires_at, user.license_type);
-    
-    if (user.license_type === 'trial') {
-      return daysRemaining !== null ? `Trial (${daysRemaining}d)` : 'Trial';
-    } else if (user.license_type === 'monthly') {
-      return daysRemaining !== null ? `Monthly (${daysRemaining}d)` : 'Monthly';
-    } else if (user.license_type === 'annual') {
-      return daysRemaining !== null ? `Annual (${daysRemaining}d)` : 'Annual';
-    }
-    
-    const labels: Record<string, string> = {
-      lifetime: 'Lifetime',
-      expired: 'Expired',
-      free: 'Free'
-    };
-    
-    return labels[user.license_type] || user.license_type;
-  };
-
-  const getLicenseBadgeColor = (licenseType: string) => {
-    const colors: Record<string, string> = {
-      trial: 'bg-blue-50 border-blue-200 text-blue-700',
-      free: 'bg-gray-50 border-gray-200 text-gray-700',
-      monthly: 'bg-green-50 border-green-200 text-green-700',
-      annual: 'bg-purple-50 border-purple-200 text-purple-700',
-      lifetime: 'bg-yellow-50 border-yellow-200 text-yellow-700',
-      expired: 'bg-red-50 border-red-200 text-red-700'
-    };
-    return colors[licenseType] || 'bg-gray-50 border-gray-200 text-gray-700';
-  };
-
-  // Login Screen
+  // ---- Tela de login ----
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-[#FAFAF8] via-[#F5F5F5] to-[#FAFAF8] flex items-center justify-center p-6">
-        <div className="max-w-md w-full">
+      <div className="min-h-screen bg-[#FAFAF8] flex items-center justify-center p-6">
+        <div className="max-w-sm w-full">
           <div className="text-center mb-8">
-            <div className="inline-block w-16 h-16 rounded-2xl bg-gradient-to-br from-[#8B7355] to-[#A89580] flex items-center justify-center mb-4">
-              <span className="text-white text-3xl font-bold">T</span>
+            <div className="inline-flex w-14 h-14 rounded-2xl bg-gradient-to-br from-[#8B7355] to-[#A89580] items-center justify-center mb-4">
+              <span className="text-white text-2xl font-bold">T</span>
             </div>
-            <h1 className="font-serif text-3xl font-bold text-[#1A1A1A] mb-2">
-              TrueFocus Admin
-            </h1>
-            <p className="text-[#6B6B6B] text-sm">
-              Restricted access — authorized personnel only
-            </p>
+            <h1 className="font-serif text-2xl font-light text-[#1A1A1A]">TrueFocus Admin</h1>
+            <p className="text-sm text-[#6B6B6B] mt-1">Acesso restrito</p>
           </div>
-
-          <div className="bg-white border border-[#E8E8E8] rounded-2xl p-8 shadow-2xl">
-            <form onSubmit={handleLogin} className="space-y-6">
-              <div>
-                <label htmlFor="password" className="block text-sm font-medium text-[#6B6B6B] mb-2">
-                  Admin Password
-                </label>
-                <input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter password"
-                  className="w-full px-4 py-3 bg-[#FAFAF8] border border-[#E8E8E8] rounded-lg text-[#1A1A1A] placeholder-[#9E9E9E] focus:outline-none focus:border-[#8B7355] transition-colors"
-                  autoFocus
-                />
-              </div>
-
-              {error && (
-                <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-                  <p className="text-sm text-red-600">{error}</p>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                className="w-full py-3 bg-gradient-to-r from-[#8B7355] to-[#A89580] text-white font-semibold rounded-lg hover:from-[#755E47] hover:to-[#93856C] transition-all duration-200 shadow-lg"
-              >
-                Access Dashboard
-              </button>
-            </form>
-
-            <div className="mt-6 pt-6 border-t border-[#E8E8E8]">
-              <button
-                onClick={() => navigate('/')}
-                className="w-full text-center text-sm text-[#6B6B6B] hover:text-[#1A1A1A] transition-colors"
-              >
-                ← Back to Landing Page
-              </button>
-            </div>
-          </div>
+          <form onSubmit={handleLogin} className="bg-white border border-[#E8E8E8] rounded-2xl p-6 shadow-sm space-y-4">
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Senha do admin"
+              autoFocus
+              className="w-full px-4 py-3 bg-[#FAFAF8] border border-[#E8E8E8] rounded-lg text-[#1A1A1A] focus:outline-none focus:border-[#8B7355]"
+            />
+            {error && <p className="text-sm text-red-600">{error}</p>}
+            <button type="submit" className="w-full py-3 bg-[#8B7355] text-white font-medium rounded-lg hover:bg-[#6D5A43] transition-colors">
+              Entrar
+            </button>
+            <button type="button" onClick={() => navigate('/')} className="w-full text-center text-sm text-[#6B6B6B] hover:text-[#1A1A1A]">
+              ← Voltar
+            </button>
+          </form>
         </div>
       </div>
     );
   }
 
-  // Dashboard Screen
+  // ---- Dashboard ----
   return (
-    <div className="min-h-screen bg-[#FAFAF8]">
+    <div className="min-h-screen bg-[#FAFAF8] text-[#1A1A1A]">
       {/* Header */}
-      <header className="bg-white border-b border-[#E8E8E8] sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+      <header className="bg-white border-b border-[#E8E8E8] sticky top-0 z-40">
+        <div className="max-w-5xl mx-auto px-5 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#8B7355] to-[#A89580] flex items-center justify-center">
-              <span className="text-white text-xl font-bold">T</span>
+            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-[#8B7355] to-[#A89580] flex items-center justify-center">
+              <span className="text-white font-bold">T</span>
             </div>
-            <div>
-              <h1 className="font-serif text-xl font-bold text-[#1A1A1A]">
-                TrueFocus Admin
-              </h1>
-              <p className="text-xs text-[#6B6B6B]">Dashboard & Analytics</p>
-            </div>
+            <h1 className="font-serif text-lg font-light">TrueFocus Admin</h1>
           </div>
-
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => navigate('/')}
-              className="px-4 py-2 bg-[#F5F5F5] border border-[#E8E8E8] text-[#6B6B6B] rounded-lg hover:bg-[#E8E8E8] transition-all duration-200 flex items-center gap-2 text-sm"
+              onClick={() => loadData(adminKey, selectedMonth)}
+              disabled={loading}
+              className="p-2 rounded-lg border border-[#E8E8E8] text-[#6B6B6B] hover:bg-[#F5F5F5] disabled:opacity-50"
+              title="Atualizar"
             >
-              <Eye className="w-4 h-4" />
-              <span>View Site</span>
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
-            <button
-              onClick={handleLogout}
-              className="px-4 py-2 bg-red-50 border border-red-200 text-red-600 rounded-lg hover:bg-red-100 transition-all duration-200 flex items-center gap-2 text-sm"
-            >
+            <button onClick={() => navigate('/')} className="p-2 rounded-lg border border-[#E8E8E8] text-[#6B6B6B] hover:bg-[#F5F5F5]" title="Ver site">
+              <Eye className="w-4 h-4" />
+            </button>
+            <button onClick={handleLogout} className="p-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50" title="Sair">
               <LogOut className="w-4 h-4" />
-              <span>Logout</span>
             </button>
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Success Message */}
-        {successMessage && (
-          <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-xl flex items-start gap-3">
-            <CheckCircle className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
-            <p className="text-sm font-medium text-green-900">{successMessage}</p>
-          </div>
-        )}
+      <main className="max-w-5xl mx-auto px-5 py-6 space-y-5">
+        {error && <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
 
-        {/* Connection Error */}
-        {connectionError && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
-            <div className="flex-1">
-              <p className="text-sm font-medium text-red-900 mb-1">
-                Error
-              </p>
-              <p className="text-sm text-red-700">{connectionError}</p>
+        {/* Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <StatCard icon={<Users className="w-4 h-4 text-[#8B7355]" />} label="Usuários" value={data ? String(data.stats.totalUsers) : '—'} sub={data ? `${data.stats.trialUsers} trial · ${data.stats.paidUsers} pagantes` : ''} />
+          <StatCard icon={<UserPlus className="w-4 h-4 text-[#8B7355]" />} label="Novos no mês" value={data ? String(data.stats.newThisMonth) : '—'} />
+          <StatCard icon={<DollarSign className="w-4 h-4 text-[#8B7355]" />} label="Receita total" value={data ? `$${data.stats.revenueTotal.toFixed(2)}` : '—'} sub="soma dos planos pagos" />
+          <StatCard icon={<DollarSign className="w-4 h-4 text-[#8B7355]" />} label="Receita no mês" value={data ? `$${data.stats.revenueThisMonth.toFixed(2)}` : '—'} />
+        </div>
+
+        {/* Cadastros por dia */}
+        <div className="bg-white rounded-2xl p-4 border border-[#E8E8E8]">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-xs text-[#6B6B6B] uppercase tracking-wider">Cadastros por dia</p>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setSelectedMonth((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1))} className="p-1.5 rounded-lg hover:bg-[#F5F5F5]">
+                <ChevronLeft className="w-4 h-4 text-[#6B6B6B]" />
+              </button>
+              <span className="text-sm font-medium w-24 text-center">
+                {MONTHS_PT[selectedMonth.getMonth()]} {selectedMonth.getFullYear()}
+              </span>
+              <button
+                onClick={() => !isCurrentMonth && setSelectedMonth((m) => new Date(m.getFullYear(), m.getMonth() + 1, 1))}
+                disabled={isCurrentMonth}
+                className={`p-1.5 rounded-lg ${isCurrentMonth ? 'opacity-30 cursor-not-allowed' : 'hover:bg-[#F5F5F5]'}`}
+              >
+                <ChevronRight className="w-4 h-4 text-[#6B6B6B]" />
+              </button>
             </div>
           </div>
-        )}
 
-        {/* Stats Grid */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {/* Total Users */}
-          <div className="bg-white border border-[#E8E8E8] rounded-xl p-6 hover:border-[#8B7355] transition-all duration-200 hover:shadow-lg">
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-12 h-12 rounded-lg bg-blue-50 flex items-center justify-center">
-                <Users className="w-6 h-6 text-blue-600" />
+          <div className="flex items-end justify-between gap-[2px] h-32">
+            {(data?.dailySignups || []).map((d) => {
+              const heightPct = d.count > 0 ? (d.count / maxSignups) * 100 : 0;
+              return (
+                <div key={d.day} className="flex-1 h-full flex flex-col items-center justify-end group" title={`Dia ${d.day}: ${d.count} cadastro(s)`}>
+                  {d.count > 0 && <span className="text-[9px] font-medium text-[#8B7355] mb-0.5">{d.count}</span>}
+                  <div className="w-full flex items-end justify-center h-full">
+                    <div
+                      className={`w-full rounded-t-sm transition-all duration-300 ${d.count === 0 ? 'bg-[#EDEAE4]' : 'bg-[#8B7355]'}`}
+                      style={{ height: d.count > 0 ? `${Math.max(heightPct, 6)}%` : '2px' }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex items-center justify-between gap-[2px] mt-1">
+            {(data?.dailySignups || []).map((d) => (
+              <div key={d.day} className="flex-1 text-center">
+                {(d.day === 1 || d.day % 5 === 0) && <span className="text-[8px] text-[#9E9E9E]">{d.day}</span>}
               </div>
-              <span className="text-xs text-[#6B6B6B] font-medium">ALL TIME</span>
-            </div>
-            <h3 className="text-3xl font-bold text-[#1A1A1A] mb-1">
-              {stats.totalUsers}
-            </h3>
-            <p className="text-sm text-[#6B6B6B]">Total Users</p>
-            <p className="text-xs text-[#9E9E9E] mt-1">
-              {stats.trialUsers} trial • {stats.paidUsers} paid
-            </p>
-          </div>
-
-          {/* Last 30 Days */}
-          <div className="bg-white border border-[#E8E8E8] rounded-xl p-6 hover:border-[#8B7355] transition-all duration-200 hover:shadow-lg">
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-12 h-12 rounded-lg bg-green-50 flex items-center justify-center">
-                <Activity className="w-6 h-6 text-green-600" />
-              </div>
-              <span className="text-xs text-[#6B6B6B] font-medium">LAST 30 DAYS</span>
-            </div>
-            <h3 className="text-3xl font-bold text-[#1A1A1A] mb-1">
-              {stats.last30Days}
-            </h3>
-            <p className="text-sm text-[#6B6B6B]">New Users</p>
-          </div>
-
-          {/* Revenue This Month */}
-          <div className="bg-white border border-[#E8E8E8] rounded-xl p-6 hover:border-[#8B7355] transition-all duration-200 hover:shadow-lg">
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-12 h-12 rounded-lg bg-yellow-50 flex items-center justify-center">
-                <DollarSign className="w-6 h-6 text-yellow-600" />
-              </div>
-              <span className="text-xs text-[#6B6B6B] font-medium">THIS MONTH</span>
-            </div>
-            <h3 className="text-3xl font-bold text-[#1A1A1A] mb-1">
-              ${stats.revenueThisMonth.toFixed(2)}
-            </h3>
-            <p className="text-sm text-[#6B6B6B]">Revenue (paid only)</p>
-          </div>
-
-          {/* Revenue This Week */}
-          <div className="bg-white border border-[#E8E8E8] rounded-xl p-6 hover:border-[#8B7355] transition-all duration-200 hover:shadow-lg">
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-12 h-12 rounded-lg bg-purple-50 flex items-center justify-center">
-                <TrendingUp className="w-6 h-6 text-purple-600" />
-              </div>
-              <span className="text-xs text-[#6B6B6B] font-medium">THIS WEEK</span>
-            </div>
-            <h3 className="text-3xl font-bold text-[#1A1A1A] mb-1">
-              ${stats.revenueThisWeek.toFixed(2)}
-            </h3>
-            <p className="text-sm text-[#6B6B6B]">Revenue (paid only)</p>
+            ))}
           </div>
         </div>
 
-        {/* Users Table */}
-        <div className="bg-white border border-[#E8E8E8] rounded-xl overflow-hidden shadow-sm">
-          <div className="p-6 border-b border-[#E8E8E8] flex items-center justify-between">
-            <h2 className="text-xl font-bold text-[#1A1A1A] flex items-center gap-2">
-              <Database className="w-5 h-5 text-[#8B7355]" />
-              All Users ({users.length})
-            </h2>
-            <button
-              onClick={loadData}
-              disabled={loading}
-              className="px-4 py-2 bg-[#8B7355] text-white rounded-lg hover:bg-[#755E47] transition-all duration-200 text-sm disabled:opacity-50 flex items-center gap-2"
-            >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-              {loading ? 'Loading...' : 'Refresh'}
-            </button>
+        {/* Lista de usuários */}
+        <div className="bg-white rounded-2xl border border-[#E8E8E8] overflow-hidden">
+          <div className="px-4 py-3 border-b border-[#E8E8E8]">
+            <p className="text-xs text-[#6B6B6B] uppercase tracking-wider">
+              Usuários {data ? `(${data.users.length})` : ''} · atividade e retenção
+            </p>
           </div>
+          <div className="divide-y divide-[#F0EDE8]">
+            {loading && !data ? (
+              <div className="p-10 text-center text-[#6B6B6B]">
+                <div className="w-6 h-6 border-2 border-[#8B7355] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                Carregando...
+              </div>
+            ) : data && data.users.length === 0 ? (
+              <div className="p-10 text-center text-[#6B6B6B]">Nenhum usuário ainda.</div>
+            ) : (
+              (data?.users || []).map((u) => (
+                <div key={u.id} className="flex items-center gap-3 px-4 py-3 hover:bg-[#FAFAF8]">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">{u.name}</p>
+                    <p className="text-xs text-[#6B6B6B] truncate">{u.email}</p>
+                  </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-[#FAFAF8] border-b border-[#E8E8E8]">
-                <tr>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-[#6B6B6B] uppercase tracking-wider">
-                    Name
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-[#6B6B6B] uppercase tracking-wider">
-                    Email
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-[#6B6B6B] uppercase tracking-wider">
-                    Registered
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-[#6B6B6B] uppercase tracking-wider">
-                    License
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-[#6B6B6B] uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#E8E8E8]">
-                {loading && users.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-6 py-12 text-center">
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="w-8 h-8 border-4 border-[#8B7355] border-t-transparent rounded-full animate-spin"></div>
-                        <p className="text-[#6B6B6B]">Loading from database...</p>
-                      </div>
-                    </td>
-                  </tr>
-                ) : users.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-6 py-12 text-center">
-                      <div className="flex flex-col items-center gap-3">
-                        <Database className="w-12 h-12 text-[#9E9E9E]" />
-                        <div>
-                          <p className="text-[#1A1A1A] font-medium mb-1">No users in database</p>
-                          <p className="text-sm text-[#6B6B6B]">Users will appear when they sign up</p>
-                        </div>
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  users.map((user) => {
-                    const daysRemaining = calculateDaysRemaining(user.license_expires_at, user.license_type);
-                    
-                    return (
-                      <tr key={user.id} className="hover:bg-[#FAFAF8] transition-colors">
-                        <td className="px-6 py-4 text-sm font-medium text-[#1A1A1A]">
-                          {user.name}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-[#6B6B6B]">
-                          {user.email}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-[#6B6B6B]">
-                          {formatDate(user.created_at)}
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-3">
-                            <span className={`inline-block px-3 py-1 border rounded-full text-xs font-medium ${getLicenseBadgeColor(user.license_type)}`}>
-                              {user.license_type === 'trial' ? 'Trial' : 
-                               user.license_type === 'monthly' ? 'Monthly' :
-                               user.license_type === 'annual' ? 'Annual' :
-                               user.license_type === 'lifetime' ? 'Lifetime' :
-                               user.license_type === 'expired' ? 'Expired' : 'Free'}
-                            </span>
-                            {user.license_type === 'trial' && daysRemaining !== null ? (
-                              <div className="flex items-center gap-2">
-                                <div className={`w-2 h-2 rounded-full ${daysRemaining > 7 ? 'bg-green-500' : daysRemaining > 3 ? 'bg-yellow-500' : 'bg-red-500'}`}></div>
-                                <span className={`text-xs font-semibold ${daysRemaining > 7 ? 'text-green-700' : daysRemaining > 3 ? 'text-yellow-700' : 'text-red-700'}`}>
-                                  {daysRemaining}d left
-                                </span>
-                              </div>
-                            ) : user.license_type === 'monthly' && daysRemaining !== null ? (
-                              <span className="text-xs text-[#6B6B6B] font-medium">{daysRemaining}d left</span>
-                            ) : user.license_type === 'annual' && daysRemaining !== null ? (
-                              <span className="text-xs text-[#6B6B6B] font-medium">{daysRemaining}d left</span>
-                            ) : user.license_type === 'lifetime' ? (
-                              <span className="text-xs text-green-600 font-medium">∞ Forever</span>
-                            ) : user.license_type === 'expired' ? (
-                              <span className="text-xs text-red-600 font-semibold">⚠️ Locked</span>
-                            ) : null}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <button
-                            onClick={() => handleEditUser(user)}
-                            className="flex items-center gap-2 px-3 py-1.5 bg-[#F5F5F5] border border-[#E8E8E8] text-[#6B6B6B] rounded-lg hover:bg-[#E8E8E8] hover:text-[#1A1A1A] transition-all duration-200 text-sm"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                            Edit
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+                  {/* Contadores de uso */}
+                  <div className="hidden sm:flex items-center gap-3 text-xs text-[#6B6B6B] whitespace-nowrap">
+                    <span title="Tarefas">✅ {u.tasksCount}</span>
+                    <span title="Insights">📝 {u.notesCount}</span>
+                    <span title="Prazos">⏰ {u.deadlinesCount}</span>
+                  </div>
+
+                  {/* Plano */}
+                  <span className={`hidden md:inline-block px-2.5 py-1 border rounded-full text-[11px] font-medium ${planBadge(u.license_type)}`}>
+                    {u.planLabel}
+                  </span>
+
+                  {/* Última atividade */}
+                  <div className="text-right w-24 hidden sm:block">
+                    <p className={`text-xs font-medium ${lastActiveColor(u.lastActiveAt)}`}>{lastActiveText(u.lastActiveAt)}</p>
+                    <p className="text-[10px] text-[#9E9E9E]">cad. {formatDate(u.created_at)}</p>
+                  </div>
+
+                  <button onClick={() => openEdit(u)} className="p-2 rounded-lg border border-[#E8E8E8] text-[#6B6B6B] hover:bg-[#F5F5F5]" title="Editar plano">
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </main>
 
-      {/* Edit User Modal */}
+      {/* Modal editar plano */}
       {editingUser && (
         <>
-          <div 
-            className="fixed inset-0 bg-black/50 z-50"
-            onClick={() => !savingLicense && setEditingUser(null)}
-          />
-          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-md">
+          <div className="fixed inset-0 bg-black/40 z-50" onClick={() => !saving && setEditingUser(null)} />
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-sm">
             <div className="bg-white rounded-2xl shadow-2xl border border-[#E8E8E8] p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-xl font-bold text-[#1A1A1A]">
-                  Edit User License
-                </h3>
-                <button
-                  onClick={() => !savingLicense && setEditingUser(null)}
-                  disabled={savingLicense}
-                  className="p-2 hover:bg-[#F5F5F5] rounded-lg transition-colors disabled:opacity-50"
-                >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-serif text-lg font-light">Editar plano</h3>
+                <button onClick={() => !saving && setEditingUser(null)} className="p-1.5 hover:bg-[#F5F5F5] rounded-lg">
                   <X className="w-5 h-5 text-[#6B6B6B]" />
                 </button>
               </div>
+              <p className="text-sm text-[#1A1A1A] font-medium">{editingUser.name}</p>
+              <p className="text-xs text-[#6B6B6B] mb-4">{editingUser.email}</p>
 
-              <div className="space-y-4 mb-6">
-                <div>
-                  <p className="text-sm text-[#6B6B6B] mb-1">Name</p>
-                  <p className="text-[#1A1A1A] font-medium">{editingUser.name}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-[#6B6B6B] mb-1">Email</p>
-                  <p className="text-[#1A1A1A] font-medium">{editingUser.email}</p>
-                </div>
-                <div>
-                  <label className="block text-sm text-[#6B6B6B] mb-2">
-                    License Type
-                  </label>
-                  <select
-                    value={newLicenseType}
-                    onChange={(e) => setNewLicenseType(e.target.value as any)}
-                    disabled={savingLicense}
-                    className="w-full px-4 py-3 bg-[#FAFAF8] border border-[#E8E8E8] rounded-lg text-[#1A1A1A] focus:outline-none focus:border-[#8B7355] transition-colors disabled:opacity-50"
-                  >
-                    <option value="trial">Trial (30 days)</option>
-                    <option value="monthly">Monthly ($6.99/mo)</option>
-                    <option value="annual">Annual ($59/year)</option>
-                    <option value="lifetime">Lifetime ($149 once)</option>
-                  </select>
-                </div>
-              </div>
+              <select
+                value={newLicenseType}
+                onChange={(e) => setNewLicenseType(e.target.value as any)}
+                disabled={saving}
+                className="w-full px-4 py-3 bg-[#FAFAF8] border border-[#E8E8E8] rounded-lg mb-4 focus:outline-none focus:border-[#8B7355]"
+              >
+                <option value="trial">Trial (10 dias)</option>
+                <option value="annual">Anual ($59/ano)</option>
+                <option value="lifetime">Vitalício ($149)</option>
+              </select>
 
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setEditingUser(null)}
-                  disabled={savingLicense}
-                  className="flex-1 px-4 py-3 bg-[#F5F5F5] border border-[#E8E8E8] text-[#6B6B6B] rounded-lg hover:bg-[#E8E8E8] transition-all duration-200 font-medium disabled:opacity-50"
-                >
-                  Cancel
+              <div className="flex gap-2">
+                <button onClick={handleSaveEdit} disabled={saving} className="flex-1 py-3 bg-[#8B7355] text-white rounded-lg hover:bg-[#6D5A43] disabled:opacity-50 font-medium">
+                  {saving ? 'Salvando...' : 'Salvar'}
                 </button>
-                <button
-                  onClick={handleSaveEdit}
-                  disabled={savingLicense}
-                  className="flex-1 px-4 py-3 bg-gradient-to-r from-[#8B7355] to-[#A89580] text-white rounded-lg hover:from-[#755E47] hover:to-[#93856C] transition-all duration-200 font-semibold shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {savingLicense ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    'Save Changes'
-                  )}
-                </button>
-                <button
-                  onClick={handleExpireNow}
-                  disabled={savingLicense}
-                  className="flex-1 px-4 py-3 bg-red-50 border border-red-200 text-red-600 rounded-lg hover:bg-red-100 transition-all duration-200 font-semibold shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {savingLicense ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    'Expire Now'
-                  )}
+                <button onClick={handleExpireNow} disabled={saving} className="px-4 py-3 bg-red-50 border border-red-200 text-red-600 rounded-lg hover:bg-red-100 disabled:opacity-50 text-sm">
+                  Expirar
                 </button>
               </div>
             </div>
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function StatCard({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value: string; sub?: string }) {
+  return (
+    <div className="bg-white border border-[#E8E8E8] rounded-xl p-4">
+      <div className="flex items-center gap-2 mb-2">
+        {icon}
+        <span className="text-[10px] text-[#6B6B6B] uppercase tracking-wider">{label}</span>
+      </div>
+      <p className="font-serif text-2xl font-light text-[#1A1A1A]">{value}</p>
+      {sub && <p className="text-[10px] text-[#9E9E9E] mt-0.5">{sub}</p>}
     </div>
   );
 }
