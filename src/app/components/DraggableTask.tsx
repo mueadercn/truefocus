@@ -78,7 +78,7 @@ export function DraggableTask({
     },
   });
 
-  const [{ isDragging }, drag] = useDrag({
+  const [{ isDragging }, drag, preview] = useDrag({
     type: ItemTypes.TASK,
     item: () => {
       return { id: task.id, index };
@@ -91,8 +91,11 @@ export function DraggableTask({
   // Conectar drop ao card inteiro para detecção de hover
   drop(cardRef);
   
-  // Conectar drag ao CARD INTEIRO (não apenas ao handle)
-  drag(cardRef);
+  // Imagem arrastada = card inteiro (visual bonito ao mover)
+  preview(cardRef);
+
+  // Arrastar SOMENTE pelo handle (os 6 pontinhos) — não interfere na rolagem da página
+  drag(dragHandleRef);
 
   const t = translations;
 
@@ -111,7 +114,7 @@ export function DraggableTask({
         layout: { duration: 0.2 },
         opacity: { duration: 0.15 },
       }}
-      className="bg-white dark:bg-[#151515] rounded-lg border border-[#E8E8E8] dark:border-[#2A2A2A] p-3 hover:border-[#8B7355] dark:hover:border-[#8B7355] transition-colors duration-200 cursor-grab active:cursor-grabbing select-none"
+      className="bg-white dark:bg-[#151515] rounded-lg border border-[#E8E8E8] dark:border-[#2A2A2A] p-3 hover:border-[#8B7355] dark:hover:border-[#8B7355] transition-colors duration-200 select-none"
       style={{
         userSelect: 'none',
         WebkitUserSelect: 'none',
@@ -124,7 +127,8 @@ export function DraggableTask({
         {/* Drag Handle */}
         <div
           ref={dragHandleRef}
-          className="cursor-grab active:cursor-grabbing flex-shrink-0"
+          className="cursor-grab active:cursor-grabbing flex-shrink-0 p-1 -ml-1 touch-none"
+          title={settings.language === 'pt' ? 'Arraste para reordenar' : 'Drag to reorder'}
         >
           <GripVertical className="w-4 h-4 text-[#6B6B6B] dark:text-[#A0A0A0]" />
         </div>

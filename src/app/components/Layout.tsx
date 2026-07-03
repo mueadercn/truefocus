@@ -1,4 +1,4 @@
-import { Home, LifeBuoy, BookOpen, BarChart3, Settings, Menu, X, ChevronLeft, ChevronRight, Clock, HelpCircle, CalendarDays, Target, ScrollText, RefreshCw, CloudOff } from 'lucide-react';
+import { Home, LifeBuoy, BookOpen, BarChart3, Settings, Menu, X, ChevronLeft, ChevronRight, Clock, HelpCircle, CalendarDays, Target, ScrollText, RefreshCw, CloudOff, LogOut } from 'lucide-react';
 import { Outlet, useLocation, useNavigate } from 'react-router';
 import { useState, useEffect, useMemo } from 'react';
 import {
@@ -16,7 +16,7 @@ import { translations } from '../utils/translations';
 export function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, settings, selectedDate, setSelectedDate, resetToToday, loading, accessStatus, syncStatus, manualSync } = useApp();
+  const { user, settings, selectedDate, setSelectedDate, resetToToday, loading, accessStatus, syncStatus, manualSync, signOut } = useApp();
   const [menuOpen, setMenuOpen] = useState(false);
   const t = translations[settings.language];
   const dateLocale = settings.language === 'pt' ? ptBR : enUS;
@@ -210,7 +210,7 @@ export function Layout() {
                   <SheetDescription className="sr-only">
                     {settings.language === 'en' ? 'Navigate between different sections of the TrueFocus app' : 'Navegue entre as diferentes seções do aplicativo TrueFocus'}
                   </SheetDescription>
-                  <div className="flex flex-col gap-2 mt-12">
+                  <div className="flex flex-col gap-2 mt-12 flex-1 min-h-0 overflow-y-auto pb-8 pr-1">
                     {/* GRUPO 1: GOALS - DESTAQUE */}
                     <button
                       onClick={() => {
@@ -398,6 +398,20 @@ export function Layout() {
                       <Settings className="w-5 h-5" />
                       <span className="font-serif text-base font-light">{t.settings}</span>
                     </button>
+
+                    {/* SEPARADOR 4 + LOGOUT */}
+                    <div className="h-px bg-[#E8E8E8] dark:bg-[#2A2A2A] my-2" />
+                    <button
+                      onClick={async () => {
+                        setMenuOpen(false);
+                        await signOut();
+                        navigate('/');
+                      }}
+                      className="flex items-center gap-4 px-4 py-4 rounded-lg text-left transition-all duration-300 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+                    >
+                      <LogOut className="w-5 h-5" />
+                      <span className="font-serif text-base font-light">{t.signOut}</span>
+                    </button>
                   </div>
                 </SheetContent>
               </Sheet>
@@ -446,6 +460,8 @@ export function Layout() {
                 <span className="text-xs font-medium">{t.home}</span>
               </button>
             </div>
+            {/* Preenche a faixa abaixo da barra até a base da tela (cobre texto que passa por baixo) */}
+            <div className="absolute top-full left-0 right-0 h-24 bg-[#FFFFFF] dark:bg-[#151515]" />
           </nav>
         </div>
       )}

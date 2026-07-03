@@ -25,10 +25,10 @@ const STRIPE_WEBHOOK_SECRET = Deno.env.get('STRIPE_WEBHOOK_SECRET');
 //   annual: 'price_1T0k2E00ioXrcGDpCBUgPkc9'   ❌ BRL
 const STRIPE_PRICES = {
   annual: 'price_1T5qCx00ioXrcGDpVqRkNZkI',    // ✅ $59 USD/year
-  // ⚠️ Lifetime agora é $179 — se usar checkout hospedado, crie um novo Price de $179 no
-  // painel do Stripe e substitua o ID abaixo. O fluxo atual (create-payment-intent) usa o
-  // valor fixo em centavos (17900), então já cobra $179 independentemente deste Price ID.
-  lifetime: 'price_1T5qDQ00ioXrcGDpiMweUhZL'   // (Price antigo de $149 — atualizar no Stripe)
+  // Lifetime é $149 — o fluxo atual (create-payment-intent) usa o valor fixo em centavos
+  // (14900), então já cobra $149 independentemente deste Price ID. Se um dia usar checkout
+  // hospedado, garanta um Price de $149 no painel do Stripe.
+  lifetime: 'price_1T5qDQ00ioXrcGDpiMweUhZL'   // ($149 USD one-time)
 };
 
 // Create Supabase client with SERVICE_ROLE_KEY for admin operations
@@ -1170,7 +1170,7 @@ app.post("/make-server-41f917a5/stripe/create-payment-intent", async (c) => {
     let description: string;
     
     if (plan === 'lifetime') {
-      amount = 17900; // $179.00
+      amount = 14900; // $149.00
       description = 'TrueFocus Pro - Lifetime Access';
     } else {
       // annual (o plano mensal foi removido)
@@ -2022,14 +2022,14 @@ app.get("/make-server-41f917a5/admin/stats", async (c) => {
     let revenueThisMonth = 0;
     monthlyLicensesResult.data?.forEach(license => {
       if (license.license_type === 'annual') revenueThisMonth += 59;
-      if (license.license_type === 'lifetime') revenueThisMonth += 179;
+      if (license.license_type === 'lifetime') revenueThisMonth += 149;
     });
 
     // Calculate revenue this week
     let revenueThisWeek = 0;
     weeklyLicensesResult.data?.forEach(license => {
       if (license.license_type === 'annual') revenueThisWeek += 59;
-      if (license.license_type === 'lifetime') revenueThisWeek += 179;
+      if (license.license_type === 'lifetime') revenueThisWeek += 149;
     });
 
     const stats = {

@@ -282,7 +282,7 @@ export function License() {
                 </div>
 
                 <div className="space-y-2.5 text-sm text-[#6B6B6B] dark:text-[#A0A0A0]">
-                  <p>{settings.language === 'en' ? '$4.91 per month — significant savings' : 'R$ 7,50 por mês — economia significativa'}</p>
+                  <p>{settings.language === 'en' ? '$4.91 per month — significant savings' : '$4.91 por mês — economia significativa'}</p>
                   <p>{settings.language === 'en' ? 'Annual automatic renewal' : 'Renovação automática anual'}</p>
                   <p>{t.cancelAnytime}</p>
                 </div>
