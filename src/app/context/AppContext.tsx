@@ -160,60 +160,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         console.log('🔍 AppContext: Checking session...', { hasSession: !!session });
         
         if (session?.user) {
-          // Load license data when loading user
-          console.log('🔍 AppContext: Loading license data for user:', session.user.email);
-          
-          try {
-            // Add timeout to prevent hanging
-            const timeoutPromise = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('License query timeout after 8 seconds')), 8000)
-            );
-            
-            const queryPromise = supabase
-              .from('licenses')
-              .select('license_type, trial_ends_at, subscription_ends_at')
-              .eq('user_id', session.user.id)
-              .single();
-            
-            const { data: licenseData, error: licenseError } = await Promise.race([
-              queryPromise,
-              timeoutPromise
-            ]) as any;
-            
-            console.log('✅ AppContext: License data loaded:', {
-              licenseData,
-              licenseError,
-              userId: session.user.id
-            });
-            
-            const userData = {
-              id: session.user.id,
-              email: session.user.email || '',
-              name: session.user.user_metadata?.name,
-              license_type: licenseData?.license_type || 'trial',
-              trial_ends_at: licenseData?.trial_ends_at,
-              subscription_ends_at: licenseData?.subscription_ends_at
-            };
-            
-            console.log('✅ AppContext: User object created:', userData);
-            setUser(userData);
-          } catch (error) {
-            console.error('❌ AppContext: Error loading license data in checkSession:', error);
-
-            // Tenta recuperar do cache local antes de falhar
-            const cachedLicense = await cacheGetLicense<License>();
-
-            const userData = {
-              id: session.user.id,
-              email: session.user.email || '',
-              name: session.user.user_metadata?.name,
-              license_type: cachedLicense?.license_type || ('trial' as const),
-              trial_ends_at: cachedLicense?.trial_ends_at || null,
-              subscription_ends_at: cachedLicense?.subscription_ends_at || null
-            };
-            console.log('⚠️ AppContext: Using cached/fallback user data (checkSession):', userData);
-            setUser(userData);
-          }
+          // LOCAL-FIRST: entra NA HORA usando a sessão salva + a licença do cache.
+          // A licença fresca vem depois (loadData cache-first + refreshLicense em 2º plano),
+          // sem segurar a abertura do app esperando a rede (era o delay de ~8s offline).
+          const cachedLicense = await cacheGetLicense<License>();
+          setUser({
+            id: session.user.id,
+            email: session.user.email || '',
+            name: session.user.user_metadata?.name,
+            license_type: cachedLicense?.license_type || 'trial',
+            trial_ends_at: cachedLicense?.trial_ends_at || null,
+            subscription_ends_at: cachedLicense?.subscription_ends_at || null,
+          });
         }
       } catch (error) {
         // Silently ignore lock errors - they're caused by React Strict Mode double-mounting
@@ -233,68 +191,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('🔔 Auth state changed:', event, session?.user?.email);
       if (session?.user) {
-        // Load license data when auth state changes
-        console.log('🔍 AppContext: Loading license data (auth change) for:', session.user.email);
-        console.log('🔍 STEP A: Iniciando try/catch...');
-        
-        try {
-          console.log('🔍 STEP B: Criando timeout promise...');
-          // Add timeout to prevent hanging
-          const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => {
-              console.log('⏰ TIMEOUT TRIGGERED! Query took more than 8 seconds');
-              reject(new Error('License query timeout after 8 seconds'));
-            }, 8000)
-          );
-          
-          console.log('🔍 STEP C: Criando query promise...');
-          const queryPromise = supabase
-            .from('licenses')
-            .select('license_type, trial_ends_at, subscription_ends_at')
-            .eq('user_id', session.user.id)
-            .single();
-          
-          console.log('🔍 STEP D: Iniciando Promise.race...');
-          const { data: licenseData, error: licenseError } = await Promise.race([
-            queryPromise,
-            timeoutPromise
-          ]) as any;
-          
-          console.log('🔍 STEP E: Promise.race completo!');
-          console.log('✅ AppContext: License data loaded (auth change):', {
-            licenseData,
-            licenseError
-          });
-          
-          const userData = {
-            id: session.user.id,
-            email: session.user.email || '',
-            name: session.user.user_metadata?.name,
-            license_type: licenseData?.license_type || 'trial',
-            trial_ends_at: licenseData?.trial_ends_at,
-            subscription_ends_at: licenseData?.subscription_ends_at
-          };
-          
-          console.log('✅ AppContext: User object created (auth change):', userData);
-          setUser(userData);
-        } catch (error) {
-          console.log('🔍 STEP F: Entrou no CATCH!');
-          console.error('❌ AppContext: Error loading license data:', error);
-
-          // Tenta recuperar do cache local antes de falhar
-          const cachedLicense = await cacheGetLicense<License>();
-
-          const userData = {
-            id: session.user.id,
-            email: session.user.email || '',
-            name: session.user.user_metadata?.name,
-            license_type: cachedLicense?.license_type || ('trial' as const),
-            trial_ends_at: cachedLicense?.trial_ends_at || null,
-            subscription_ends_at: cachedLicense?.subscription_ends_at || null
-          };
-          console.log('⚠️ AppContext: Using cached/fallback user data:', userData);
-          setUser(userData);
-        }
+        // LOCAL-FIRST: seta o usuário na hora (sessão + licença do cache), sem esperar a rede.
+        const cachedLicense = await cacheGetLicense<License>();
+        setUser({
+          id: session.user.id,
+          email: session.user.email || '',
+          name: session.user.user_metadata?.name,
+          license_type: cachedLicense?.license_type || 'trial',
+          trial_ends_at: cachedLicense?.trial_ends_at || null,
+          subscription_ends_at: cachedLicense?.subscription_ends_at || null,
+        });
       } else {
         setUser(null);
       }

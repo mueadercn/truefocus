@@ -16,7 +16,7 @@ import {
 
 export function Auth() {
   const navigate = useNavigate();
-  const { user, signIn, signUp } = useApp();
+  const { user, signIn, signUp, loading: appLoading } = useApp();
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -142,6 +142,21 @@ export function Auth() {
       setLoading(false);
     }
   };
+
+  // Abertura do app: enquanto verifica a sessão salva (ou já logado, indo pra Home),
+  // mostra um splash — evita "piscar" a tela de login pra quem já está logado.
+  if (appLoading || (user && !enrollOpen)) {
+    return (
+      <div className="min-h-screen bg-[#FAFAF8] dark:bg-[#0A0A0A] flex items-center justify-center p-5">
+        <div className="text-center space-y-6">
+          <h1 className="font-serif text-5xl font-light tracking-tight text-[#1A1A1A] dark:text-[#F5F5F5]">
+            TrueFocus
+          </h1>
+          <div className="w-8 h-8 border-2 border-[#8B7355] dark:border-[#A89580] border-t-transparent rounded-full animate-spin mx-auto"></div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#FAFAF8] dark:bg-[#0A0A0A] flex items-center justify-center p-5">
